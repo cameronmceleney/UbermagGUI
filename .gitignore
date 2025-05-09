@@ -1,0 +1,24 @@
+# IDE private metadata
+.idea/
+.idea/shelf/
+.idea/workspace.xml
+.idea/httpRequests/
+.idea/dataSources/
+.idea/dataSources.local.xml
+
+# Local data generated during simulations
+data/
+
+# Old versions of the interface (local copies are okay, but would pollute Git)
+Uberwidgets/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Extensions
+Extensions/
+
+# Temporary log files
+src/standalones/region_designer.log
