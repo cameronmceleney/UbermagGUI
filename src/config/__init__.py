@@ -1,3 +1,4 @@
+# config/__init__.py
 from .custom_logging import *
 from .type_aliases import *
 

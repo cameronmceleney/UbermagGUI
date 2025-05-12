@@ -12,7 +12,7 @@ Created:     01 May 2025
 IDE:         PyCharm
 Version:     0.1.0
 """
-from typing import Tuple, TypeAlias
+import typing
 
 __all__ = [
     "UbermagDimsType",
@@ -26,13 +26,13 @@ UNIT_FACTORS = {'m': 1, 'um': 1e-6, 'nm': 1e-9}
 # Region attribute aliases
 # -------------------------------------------------------------------
 # discretisedfield.Region.dims  → UbermagDimsType
-UbermagDimsType   = Tuple[str, str, str]
+UbermagDimsType   = typing.Tuple[str, str, str]
 
 # discretisedfield.Region.units  → UbermagUnitsType
-UbermagUnitsType  = Tuple[str, str, str]
+UbermagUnitsType  = typing.Tuple[str, str, str]
 
 # -------------------------------------------------------------------
 # Discretisation aliases
 # -------------------------------------------------------------------
 # discretisedfield.Mesh.cell → UbermagCellsizeType
-UbermagCellsizeType = Tuple[float, float, float]
+UbermagCellsizeType = typing.Tuple[float, float, float]

@@ -3,7 +3,11 @@
 """
 Project: UbermagGUI
 
-src/__init__.py
+~/workspaces/outliners/__init__.py:
 
 """
 
+
+__all__ = [
+    ""
+]

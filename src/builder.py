@@ -21,14 +21,12 @@ import logging
 
 # Third-party imports
 import micromagneticmodel as mm
-
 # Local application imports
-from .config import *
-from .config.custom_logging import *
-from .workspace_viewport import ViewportArea
-from .workspace_modelling import ControlsPanel
-from .workspace_status_bar import StatusBar
-from helper_functions import units_to_meter_factors
+import src.config as cfg
+from workspaces.viewport import ViewportArea
+from workspaces.initialisation import ControlsPanel
+from status_bars import StatusBar
+from .helper_functions import units_to_meter_factors
 
 __all__ = ["RegionDesigner"]
 
@@ -37,13 +35,13 @@ class RegionDesigner:
     def __init__(
             self,
             system_name: str = "mySystem",
-            cellsize: type_aliases.UbermagCellsizeType = (1, 1, 1),
-            dims: type_aliases.UbermagDimsType = ("x", "y", "z"),
-            units: type_aliases.UbermagUnitsType = ("nm", "nm", "nm"),
+            cellsize: cfg.UbermagCellsizeType = (1, 1, 1),
+            dims: cfg.UbermagDimsType = ("x", "y", "z"),
+            units: cfg.UbermagUnitsType = ("nm", "nm", "nm"),
             show_borders=False
     ):
         # configure logging for the entire interface
-        setup_logging(console_level="INFO")
+        cfg.setup_logging(console_level="INFO")
         # now everything below will inherit that configuration
         self.logger = logging.getLogger(__name__)
         self.logger.info("Starting RegionDesigner")
@@ -85,22 +83,29 @@ class RegionDesigner:
         grid = GridspecLayout(
             n_rows=3, n_columns=2,
             layout=Layout(
-                width='auto', min_width='800px',
-                height='auto', min_height='800px',
+                min_width='800px',
+                min_height='800px',
                 gap='4px',
             )
         )
-        grid._grid_template_rows = '15% 70% 15%'
-        grid._grid_template_columns = '55% 45%'
+        grid._grid_template_rows = '50% 40% 10%'
+        grid._grid_template_columns = '3fr 2fr'
 
         # Place header
         grid[0, :] = self.header
         # Place viewport
         grid[1, 0] = self.viewport_area.build()
-        # Place controls (outliner + feature_modelling)
+        # Place controls (outliners + regions)
         grid[1, 1] = self.controls_panel.build()
         # Place footer
         grid[2, :] = self.status_bar.build()
 
         return grid
 
+
+def main():
+    RegionDesigner(show_borders=True)
+
+
+if __name__ == "__main__":
+    main()

@@ -6,8 +6,10 @@
 .idea/dataSources/
 .idea/dataSources.local.xml
 
-# Local data generated during simulations
-data/
+# Local data generated during simulations. Ensure subfolder contents are omitted from pushes
+data/figures/
+data/raw/
+data/tidy/
 
 # Old versions of the interface (local copies are okay, but would pollute Git)
 Uberwidgets/

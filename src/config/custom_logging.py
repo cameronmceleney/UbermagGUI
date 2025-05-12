@@ -17,14 +17,24 @@ Version:     0.1.0
 import logging
 import sys
 import os
+from pathlib import Path
 
 # Third-party imports
 
 # Local application imports
 
-LOG_FILENAME = os.path.join(os.getcwd(), "region_designer.log")
-
 __all__ = ["setup_logging"]
+
+# climb back up from .../src/config/custom_logging.py to your project root
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+# now build a `data/logs` folder under that
+LOG_DIR = PROJECT_ROOT / "data" / "logs"
+LOG_DIR.mkdir(parents=True, exist_ok=True)
+
+# and point your log file there
+LOG_FILENAME = LOG_DIR / "region_designer.log"
+
 
 # --- define a custom SUCCESS level --- #
 SUCCESS_LEVEL = 25
@@ -47,11 +57,21 @@ class SuccessErrorFilter(logging.Filter):
 
 
 def setup_logging(console_level: str = "INFO") -> None:
-    fmt     = "%(asctime)s %(name)s %(levelname)s: %(message)s"
-    datefmt = "%Y-%m-%d %H:%M:%S"
 
     root = logging.getLogger()
+
+    # Clear previous logging handlers as they live outside namespace; avoiding %reset
+    for h in root.handlers[:]:
+        root.removeHandler(h)
+        try:
+            h.close()
+        except:
+            pass
+
     root.setLevel(logging.DEBUG)   # capture everything—handlers will filter.
+
+    fmt     = "%(asctime)s %(name)s %(levelname)s: %(message)s"
+    datefmt = "%Y-%m-%d %H:%M:%S"
 
     # 1) Console handler: show INFO+ on stdout
     ch = logging.StreamHandler(sys.stdout)
