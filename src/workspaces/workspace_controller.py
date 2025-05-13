@@ -41,6 +41,11 @@ class WorkspaceController:
       • SystemInitController
       […future: Outliner, Equations, etc.]
     Holds shared state: main_region, subregions, mesh, init_mag.
+
+    The workspace_controller must offer registration methods for listeners:
+     - register_geometry_listener(cb)  -> cb(main_region, subregions)
+     - register_mesh_listener(cb)      -> cb(mesh)
+     - register_init_mag_listener(cb)  -> cb(init_mag)
     """
 
     def __init__(self, system: mm.System, plot_callback):
@@ -54,6 +59,11 @@ class WorkspaceController:
         """
         self.system = system
         self._plot_callback = plot_callback
+
+        # ——— listeners for external clients (e.g. Outliner) ———
+        self._geometry_listeners = []
+        self._mesh_listeners = []
+        self._init_mag_listeners = []
 
         # States shared across all Initialisation workspaces
         self.main_region = None
@@ -124,14 +134,22 @@ class WorkspaceController:
             layout=Layout(width='100%', height='100%')
         )
 
-    def build_top_menu(self):
-        """Just the selector bar for the header area."""
-        return widgets.HBox([self.selector], layout=Layout(justify_content='flex-start'))
+    def build_selector_for_top_menu(self):
+        """Intentionally separated out the selector bar for the TopMenu UI area"""
+        container = widgets.HBox(
+            children=[self.selector],
+            layout=widgets.Layout(justify_content='flex-start')
+        )
+        return container
 
     # — plot proxy —
     def _plot_regions(self, main_region, subregions, show_domain=True):
         if self._plot_callback:
             self._plot_callback(main_region, subregions, show_domain)
+
+        # notify geometry listeners
+        for cb in self._geometry_listeners:
+            cb(main_region, subregions)
 
     # ---- geometry state mutators  ----
     def _on_domain(self, region):
@@ -159,16 +177,33 @@ class WorkspaceController:
     def _on_mesh_created(self, mesh):
         logger.success("WorkspaceController got mesh: %r", mesh)
         self.mesh = mesh
-        # notify geometry controller (if you want to sync base‐mesh dropdowns, etc.)
+        # notify mesh listeners
+        for cb in self._mesh_listeners:
+            cb(mesh)
+
+        # notify geometry controller to sync base-mesh options in DropDown widget
         if hasattr(self.system_init_ctrl, 'refresh_mesh_dropdown'):
             self.system_init_ctrl.refresh_mesh_dropdown()
 
     def _on_init_mag_created(self, field):
         logger.success("WorkspaceController got init‐mag: %r", field)
         self.init_mag = field
-        # if you had an outliner workspace, you’d refresh it here:
-        # self.outliner_ws.refresh(self.main_region, self.subregions, self.mesh, self.init_mag)
 
+        for cb in self._init_mag_listeners:
+            cb(field)
+
+    # ——— registration API for external listeners ———
+    def register_geometry_listener(self, cb):
+        """cb(main_region, subregions) called whenever geometry changes."""
+        self._geometry_listeners.append(cb)
+
+    def register_mesh_listener(self, cb):
+        """cb(mesh) called whenever a mesh is created."""
+        self._mesh_listeners.append(cb)
+
+    def register_init_mag_listener(self, cb):
+        """cb(init_mag) called whenever initial magnetisation is defined."""
+        self._init_mag_listeners.append(cb)
 
 class WorkspaceTopMenu:
     def __init__(self):

@@ -6,6 +6,8 @@ Path:    src/status_bars/status_bars.py
 
 Description:
         Defines the footer bar with the Instantiate button.
+
+        TODO. NOT CURRENTLY WIRED INTO BUILDER.PY OR ANY OTHER CONTROLLER!
     
 Author:      Cameron Aidan McEleney < c.mceleney.1@research.gla.ac.uk >
 Created:     29 Apr 2025

@@ -10,6 +10,7 @@
 data/figures/
 data/raw/
 data/tidy/
+data/logs/
 
 # Old versions of the interface (local copies are okay, but would pollute Git)
 Uberwidgets/

@@ -201,7 +201,7 @@ class ControlsPanel:
         _on_select({'name': 'value', 'new': names[0]})
 
         grid = GridspecLayout(n_rows=1, n_columns=2)
-        grid._grid_template_columns = '25% 75%'
+        grid._grid_template_columns = '1fr 3fr'
         grid.grid_gap = '4px'
         grid.layout.height = '100%'
         grid[0, 0] = selector
@@ -263,7 +263,7 @@ class ControlsPanel:
         ctrl = GridspecLayout(n_rows=2, n_columns=1)
         ctrl.grid_gap = '4px'
         ctrl.layout.height = '100%'
-        ctrl._grid_template_rows = '30% 70%'
+        ctrl._grid_template_rows = '3fr 7fr'
 
         ctrl[0,0] = self.outliner_box
         ctrl[1,0] = self.properties_pane

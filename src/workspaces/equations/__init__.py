@@ -3,11 +3,10 @@
 """
 Project: UbermagGUI
 
-src/__init__.py
+~/workspaces/equations/__init__.py:
 
 """
-from builder import UbermagInterface
 
 __all__ = [
-    "UbermagInterface"
+    ""
 ]

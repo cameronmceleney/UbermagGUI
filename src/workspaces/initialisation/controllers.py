@@ -23,7 +23,6 @@ Version:     0.1.0
 
 # Standard library imports
 import ipywidgets as widgets
-from ipywidgets import Layout
 from IPython.display import display
 import logging
 
@@ -49,11 +48,45 @@ class HandleFeature:
         Parent abstract class to help with buildings features that controllers will manage.
         """
         self.panels = {}
-        self.content = widgets.Output(layout=Layout(overflow='auto'))
+        self.content = widgets.Output(layout=widgets.Layout(overflow='auto'))
         self.selector = None
 
     def build_feature(self, panel_titles):
-        names = list(panel_titles.keys())
+        """
+        Build a two-column layout for the given panels:
+            - a ToggleButtons column on the left
+            - a content Output area on the right to host 'features'
+
+        """
+        # Stash `panel_titles` for later use in `_on_select` callback
+        self.panels = panel_titles
+
+        self._build_toggles_with_wiring()
+
+        # Build feature
+        grid = widgets.GridspecLayout(
+            n_rows=1, n_columns=2,
+            layout=widgets.Layout(
+                width='100%',
+                height='100%',
+                gap='4px',
+            )
+        )
+
+        # 1st column follows own Layout, and 2nd column fills remaining space
+        grid._grid_template_columns = f'{self.selector.style.button_width} 1fr'
+
+        grid[0, 0] = self.selector
+        grid[0, 1] = self.content
+
+        return grid
+
+    def _build_toggles_with_wiring(self):
+        """
+        Construct the ToggleButtons used to change between panels of this feature, and setup the
+        wiring required by `workspace_controller.py` and other higher-level controllers.
+        """
+        names = list(self.panels.keys())
 
         # Guaranteeing widths will be particularly helpful when displaying icons
         min_width = str(min(max(len(n) for n in names), 8) + 2) + "ch"
@@ -67,33 +100,27 @@ class HandleFeature:
                 'align_content': 'center',
                 'justify_content': 'center'
             },
-            layout=Layout(
+            layout=widgets.Layout(
                 min_width=min_width,
                 width='auto', height='100%',
                 overflow='auto',
-                display='flex', # required for column-nowrap to take effect
+                display='flex',  # required for column-nowrap to take effect
                 flex_flow='column nowrap'
             ),
         )
 
-        self.selector.observe(self._on_select, names='value')
-        self.selector.value = names[0]  # initial
+        # # Code you requested be added
+        # selector.observe(lambda change: self._on_select(panel_titles, change), names='value')
+        # self.selector = selector
+        #
+        # # Back to old code
+        # self.selector.value = names[0]  # initial
+        # Wire selection changes into internal `_on_select`
+        selector.observe(self._on_select, names='value')
+        self.selector = selector
 
-        grid = widgets.GridspecLayout(n_rows=1, n_columns=2,
-                                      layout=Layout(
-                                          width='100%',
-                                          height='100%',
-                                          gap='4px',
-                                      )
-                              )
-
-        # 1st column follows own Layout, and 2nd column fills remaining space
-        grid._grid_template_columns = f'{min_width} 1fr'
-
-        grid[0, 0] = selector
-        grid[0, 1] = self.content
-
-        return grid
+        # Initialise to first tab
+        self.selector.value = names[0]
 
     def _on_select(self, change: dict):
         if change.get('name') == 'value':
