@@ -20,11 +20,12 @@ class PlaceRegion:
     def __init__(self):
         # callbacks to ControlsPanel
         self._state_cb = None     # ControlsPanel.add_subregion
-        self._plot_cb  = None     # ViewportArea.plot_regions
-        self._controls = None
+
+        # Build-time attributes
+        self.units = None
+        self.dims = None
 
         # Widgets (will be re-created each build)
-        self.explainer = None
         self.text_name = None
         self.pmin_x = self.pmin_y = self.pmin_z = None
         self.pmax_x = self.pmax_y = self.pmax_z = None
@@ -34,17 +35,13 @@ class PlaceRegion:
         """Register ControlsPanel.add_subregion."""
         self._state_cb = cb
 
-    def set_plot_callback(self, cb):
-        """Register ViewportArea.plot_regions."""
-        self._plot_cb = cb
-        # Binding of click occurs in build(), after self.btn_place is created
-
-    def build(self, controls_panel) -> widgets.VBox:
+    def build(self, context) -> widgets.VBox:
         """
         Build and return the UI for placing a subregion.
         Capture controls_panel for dims/units lookups.
         """
-        self._controls = controls_panel
+        self.units = context.units if context.units is not None else ('m', 'm', 'm')
+        self.dims = context.dims if context.dims is not None else ('m', 'm', 'm')
 
         place_panel = widgets.VBox(
             layout=Layout(
@@ -102,10 +99,6 @@ class PlaceRegion:
         place_panel.children = tuple(panel_children)
         return place_panel
 
-    def refresh(self, bases):
-        """Update any dropdowns—none here."""
-        pass
-
     def _on_place(self, _):
         """When user clicks 'Place Region'—convert inputs to SI, register, redraw."""
         name = self.text_name.value.strip()
@@ -118,27 +111,20 @@ class PlaceRegion:
             raise Exception("Something went wrong with pmin_raw or pmax_raw")
 
         # Convert to SI using controls.units
-        unit   = self._controls.units[0]
-        factor = UNIT_FACTORS.get(unit, 1.0)
+        factor = UNIT_FACTORS.get(self.units[0], 1.0)
         pmin_si = tuple(v * factor for v in pmin_raw)
         pmax_si = tuple(v * factor for v in pmax_raw)
 
         # Create the new Region (in SI units, tagged with user units)
         region = df.Region(
             p1=pmin_si, p2=pmax_si,
-            dims=self._controls.dims,
-            units=self._controls.units
+            dims=self.dims,
+            units=self.units
         )
 
         # 1) update ControlsPanel state
         if self._state_cb:
             self._state_cb(name, region)
-        # 2) redraw viewport
-        if self._plot_cb:
-            self._plot_cb(
-                self._controls.main_region,
-                self._controls.subregions,
-                self._controls.toggle_show.value)
 
     def _position_widgets(self, panel_children):
 
@@ -167,7 +153,7 @@ class PlaceRegion:
         self.pmax_z = hbox_pmax.children[3]
 
         html_units_explainer = widgets.HTMLMath(
-            value=f"(Units: {self._controls.units[0]})",
+            value=f"(Units: {self.units[0]})",
             layout=widgets.Layout(
                 width="auto",
                 justify_content="flex-end",

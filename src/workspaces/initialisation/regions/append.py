@@ -4,6 +4,7 @@
 AppendRegionToExisting:
     Extrude a new subregion off a base region (main or existing).
 """
+import logging
 
 import ipywidgets as widgets
 from ipywidgets import Layout
@@ -14,12 +15,12 @@ __all__ = ["AppendRegionUsingBase"]
 
 class AppendRegionUsingBase:
     def __init__(self):
-        # callbacks to ControlsPanel
-        self._state_cb   = None     # ControlsPanel.add_subregion
-        self._plot_cb    = None     # ViewportArea.plot_regions
-        self._controls   = None     # set at build()
+        # callback to WorkspaceController.add_subregion(name,region)
+        self._state_cb   = None
+        # will be set in build()
+        self._controller   = None
 
-        # widgets (will be re-created each build)
+        # placeholders for widgets
         self.text_region_name = None
         self.dd_base = None
         self.tb_axis = None
@@ -29,22 +30,20 @@ class AppendRegionUsingBase:
         self.btn_append = None
 
     def set_state_callback(self, cb):
-        """Register ControlsPanel.add_subregion."""
+        """
+        Register the callback that accepts (name:str, region:df.Region).
+        """
         self._state_cb = cb
-
-    def set_plot_callback(self, cb):
-        """Register ViewportArea.plot_regions."""
-        self._plot_cb = cb
-
-        if self.btn_append:
+        # if the button already exists, re-wire it
+        if self.btn_append is not None:
             self.btn_append.on_click(self._on_append)
 
-    def build(self, controls_panel):
+    def build(self, controller):
         """
         Build and return the UI for appending a subregion.
         Capture controls_panel so we can read dims/units and existing subregions.
         """
-        self._controls = controls_panel
+        self._controller = controller
         # Dynamically collect children
         append_panel = widgets.VBox(
             layout=Layout(
@@ -87,7 +86,7 @@ class AppendRegionUsingBase:
         html_base_name = widgets.HTML(
             value="Base region",
         )
-        bases = ["main"] + list(controls_panel.subregions.keys())
+        bases = ["main"] + list(self._controller.subregions.keys())
         self.dd_base = widgets.Dropdown(
             options=bases,
             layout=Layout(width="40%")
@@ -105,7 +104,7 @@ class AppendRegionUsingBase:
         panel_children.append(hbox_dd_base)
 
         ####
-        html_orientation_explainer = widgets.HTMLMath(
+        html_orientation_explainer = widgets.HTML(
             value=(
                 "To set the orientation of the generated region provide: "
             ),
@@ -152,11 +151,10 @@ class AppendRegionUsingBase:
                 justify_content='flex-end'
             )
         )
-
         panel_children.append(hbox_side)
 
         # 4) Explain how scaling works to user
-        self._length_scaling_widgets(panel_children)
+        self._make_scaling_controls(panel_children)
 
         # 5) Append button handling already created in __init__; just need to create button for signalling
         self.btn_append = widgets.Button(
@@ -164,27 +162,18 @@ class AppendRegionUsingBase:
             layout=Layout(width='auto'),
             style={'button_width': 'auto'}
         )
-        self.btn_append.on_click(self._on_append)
+
         btn_box = widgets.HBox(
             [self.btn_append],
             layout=Layout(justify_content='center', width='100%')
         )
         panel_children.append(btn_box)
 
+        if self._state_cb:
+            self.btn_append.on_click(self._on_append)
+
         append_panel.children = tuple(panel_children)
         return append_panel
-
-    def refresh(self, bases):
-        """Public API to refresh the list of existing regions."""
-        self._refresh()
-
-    def _refresh(self):
-        if self._plot_cb:
-            self._plot_cb(
-                self._controls.main_region,
-                self._controls.subregions,
-                self._controls.toggle_show.value
-            )
 
     def _on_append(self, _):
         """
@@ -197,50 +186,45 @@ class AppendRegionUsingBase:
         region_name = self.text_region_name.value.strip()
         if not region_name or region_name is None:
             self.btn_append.button_style = 'danger'
+            logging.error('Region name either not provided, or None.', stack_info=True)
             return
 
-        try:
-            base_key = self.dd_base.value
-            axis     = self.tb_axis.value
-            side     = self.tb_side.value
-            scale_mode = self.dd_scale_mode.value
-            scale_amount = self.ftext_scale_amount.value
+        # gather inputs
+        base_key = self.dd_base.value
+        axis     = self.tb_axis.value
+        side     = self.tb_side.value
+        scale_mode   = self.dd_scale_mode.value
+        scale_amount = self.ftext_scale_amount.value
 
-            # lookup the parent region (main or subregion)
-            parent = (
-                self._controls.main_region
-                if base_key == "main"
-                else self._controls.subregions.get(base_key)
-            )
-            if parent is None:
-                self.btn_append.button_style = 'success'
-                return
+        # lookup parent region
+        parent = (
+            self._controller.main_region
+            if base_key == "main"
+            else self._controller.subregions.get(base_key)
+        )
+        if parent is None:
+            self.btn_append.button_style = "danger"
+            logging.error('Parent region, via self._controller, is None.', stack_info=True)
+            return
 
-            # compute new Region (all SI internally)
-            new_region = create_scaled_region_from_base_region(
-                base_region=parent,
-                scale_amount=scale_amount,
-                cellsize=self._controls.cellsize,
-                reference_side=side,
-                scale_along_axis=axis,
-                scale_is_absolute=(scale_mode == "absolute")
-            )
+        # compute new Region (all SI internally)
+        new_region = create_scaled_region_from_base_region(
+            base_region=parent,
+            scale_amount=scale_amount,
+            cellsize=self._controller.cellsize,
+            reference_side=side,
+            scale_along_axis=axis,
+            scale_is_absolute=(scale_mode == "absolute")
+        )
 
-        except Exception as e:
-            self.btn_append.button_style = 'danger'
-            raise f"AppendRegionToExisting failed: {e}"
-
-        # 1) notify ControlsPanel
+        # notify the workspace controller
         if self._state_cb:
             self._state_cb(region_name, new_region)
 
-        # 2) redraw the Viewport
-        self._refresh()
-
-    def _length_scaling_widgets(self, panel_children: list):
+    def _make_scaling_controls(self, panel_children: list) -> None:
 
         # Explain to the user how the scaling works
-        html_scale_explainer = widgets.HTMLMath(
+        html_scale_explainer = widgets.HTML(
             value=(
                 f"Define how the new region will be scaled. "
             ),
@@ -272,8 +256,8 @@ class AppendRegionUsingBase:
         html_rel = widgets.HTMLMath(
             value=(
                 r"unit cells where<br>"
-                rf"\(\Delta d_{{{self.tb_axis.value}}} = {self._controls.cellsize[ax]}\)"
-                f" {self._controls.units[ax]}"
+                rf"\(\Delta d_{{{self.tb_axis.value}}} = {self._controller.cellsize[ax]}\)"
+                f" {self._controller.units[ax]}"
             ),
             layout=Layout(width="auto", overflow_x='visible')
         )
@@ -284,7 +268,7 @@ class AppendRegionUsingBase:
 
         # 4b) Absolute (distance) box
         html_abs = widgets.HTMLMath(
-            value=f"{self._controls.units[ax]}",
+            value=f"{self._controller.units[ax]}",
             layout=Layout(width="auto")
         )
         hbox_abs = widgets.HBox(
@@ -308,4 +292,3 @@ class AppendRegionUsingBase:
         )
 
         panel_children.append(hbox_dropdown_plus_stack)
-

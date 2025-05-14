@@ -4,6 +4,9 @@
 Project: UbermagGUI
 Path:    src/workspaces/initialisation/controllers.py
 
+InitialisationController:
+    Bundles GeometryController & SystemInitController under a Tab.
+
 GeometryController:
     Hosts the “Domain / Place / Append / Remove” panels.
     Formerly self.panels_model + _build_model_creation_panel.
@@ -38,28 +41,36 @@ logger = logging.getLogger(__name__)
 __all__ = [
     "HandleFeature",
     "GeometryController",
-    "SystemInitController"
+    "SystemInitController",
+    "InitialisationController"
 ]
 
 
 class HandleFeature:
-    def __init__(self):
+    def __init__(self, system, dims, units):
         """
         Parent abstract class to help with buildings features that controllers will manage.
         """
-        self.panels = {}
-        self.content = widgets.Output(layout=widgets.Layout(overflow='auto'))
-        self.selector = None
+        # Shared context for all panels
+        self.system = system
+        self.dims = dims
+        self.units = units
 
-    def build_feature(self, panel_titles):
+        # Filled in by build_feature()
+        self.panels = {}
+        self.selector: widgets.ToggleButtons = widgets.ToggleButtons()
+        self.content: widgets.Output = widgets.Output(layout=widgets.Layout(overflow="auto"))
+
+    def build_feature(self, panel_map: dict) -> widgets.GridspecLayout:
         """
         Build a two-column layout for the given panels:
             - a ToggleButtons column on the left
             - a content Output area on the right to host 'features'
 
+        panel_map: mapping from tab‐name to panel‐instance (must support .build(self))
         """
-        # Stash `panel_titles` for later use in `_on_select` callback
-        self.panels = panel_titles
+        # Stash for children
+        self.panels = panel_map
 
         self._build_toggles_with_wiring()
 
@@ -89,7 +100,7 @@ class HandleFeature:
         names = list(self.panels.keys())
 
         # Guaranteeing widths will be particularly helpful when displaying icons
-        min_width = str(min(max(len(n) for n in names), 8) + 2) + "ch"
+        min_width = '10ch' #str(min(max(len(n) for n in names), 8) + 2) + "ch"
 
         selector = widgets.ToggleButtons(
             options=names,
@@ -109,13 +120,6 @@ class HandleFeature:
             ),
         )
 
-        # # Code you requested be added
-        # selector.observe(lambda change: self._on_select(panel_titles, change), names='value')
-        # self.selector = selector
-        #
-        # # Back to old code
-        # self.selector.value = names[0]  # initial
-        # Wire selection changes into internal `_on_select`
         selector.observe(self._on_select, names='value')
         self.selector = selector
 
@@ -124,9 +128,10 @@ class HandleFeature:
 
     def _on_select(self, change: dict):
         if change.get('name') == 'value':
+            panel = self.panels[change['new']]
             self.content.clear_output()
             with self.content:
-                display(self.panels[change['new']].build(self))
+                display(panel.build(self))
 
 
 class GeometryController(HandleFeature):
@@ -134,18 +139,13 @@ class GeometryController(HandleFeature):
             self,
             system,
             plot_callback,
+            dims,
+            units,
             domain_callback,
             add_callback,
             remove_callback,
-            show_domain_getter
     ):
-        super().__init__()
-        self.system = system
-        self.plot_callback = plot_callback
-        self.domain_cb = domain_callback
-        self.add_cb = add_callback
-        self.remove_cb = remove_callback
-        self.show_domain_getter = show_domain_getter
+        super().__init__(system, dims, units)
 
         # All panels in feature
         self.panels = {
@@ -155,30 +155,23 @@ class GeometryController(HandleFeature):
             'Remove': regions.RemoveRegion()
         }
 
-        self._wire_panel_callbacks()
+        self.panels['Domain'].set_state_callback(domain_callback)
+        self.panels['Place'].set_state_callback(add_callback)
+        self.panels['Append'].set_state_callback(add_callback)
+        self.panels['Remove'].set_state_callback(remove_callback)
 
-    def _wire_panel_callbacks(self):
-        self.panels['Domain'].set_state_callback(self.domain_cb)
-        self.panels['Domain'].set_plot_callback(self.plot_callback)
-
-        self.panels['Place'].set_state_callback(self.add_cb)
-        self.panels['Place'].set_plot_callback(self.plot_callback)
-
-        self.panels['Append'].set_state_callback(self.add_cb)
-        self.panels['Append'].set_plot_callback(self.plot_callback)
-
-        self.panels['Remove'].set_state_callback(self.remove_cb)
-        self.panels['Remove'].set_plot_callback(self.plot_callback)
-
-    def build(self):
+    def build(self) -> widgets.GridspecLayout:
         return self.build_feature(self.panels)
 
 
 class SystemInitController(HandleFeature):
-    def __init__(self, system, plot_callback):
-        super().__init__()
-        self.system = system
-        self.plot_callback = plot_callback
+    def __init__(
+            self,
+            system, dims, units,
+            mesh_callback,
+            init_mag_callback
+            ):
+        super().__init__(system, dims, units)
 
         # panels for each step
         self.panels = {
@@ -187,54 +180,80 @@ class SystemInitController(HandleFeature):
             'Subregions in mesh': meshes.SelectSubregionsInMesh()
         }
 
-        self._wire_panel_callbacks()
+        # wire their state callbacks
+        self.panels['Mesh'].set_state_callback(mesh_callback)
+        self.panels['Initial fields'].set_state_callback(init_mag_callback)
+        self.panels['Subregions in mesh'].set_state_callback(mesh_callback)
 
-    def _wire_panel_callbacks(self):
-        """wire state + plot"""
-        self.panels['Mesh'].set_state_callback(self._on_mesh)
-
-        self.panels['Initial fields'].set_state_callback(self._on_field)
-
-        self.panels['Subregions in mesh'].set_state_callback(self._on_mesh)
-
-    def build(self):
+    def build(self) -> widgets.GridspecLayout:
         return self.build_feature(self.panels)
-
-    def _on_mesh(self, mesh):
-
-        logger.success("ControlsPanel received mesh: %r", mesh)
-
-        self.system.mesh = mesh  # Store the new mesh
-
-        # update the mesh dropdown in System‑Init tab
-        self.refresh_mesh_dropdown()
-
-    def _on_field(self, field):
-        self.system.m = field
 
     def refresh_mesh_dropdown(self):
         """
-        Keep the MeshPanel’s base‐region dropdown in sync.
+        Helper to keep the base-region dropdown in sync whenever subregions change.
         """
-        mesh_panel = self.panels.get('Mesh')
+        mesh_panel = self.panels.get("Mesh")
         if not mesh_panel:
             return
-        # bases = ['main'] + all subregion names, but only once main_region exists
+
         if self.system.main_region is None:
             mesh_panel.dd_base_region.options = []
             mesh_panel.dd_base_region.value = None
         else:
-            bases = ['main'] + list(self.system.subregions.keys())
+            bases = ["main"] + list(self.system.subregions.keys())
             mesh_panel.refresh(bases)
 
-        init_mag_panel = self.panels.get("Initial fields")
-        if not init_mag_panel:
-            return
-        if init_mag_panel is not None:
-            init_mag_panel.refresh()
 
-        subregions_panel = self.panels.get("Subregions in mesh")
-        if not subregions_panel:
-            return
-        if subregions_panel is not None:
-            subregions_panel.refresh()
+class InitialisationController:
+    """
+    Exposes Geometry + System‐Init features under one Tab widget.
+    """
+    def __init__(
+            self,
+            system, dims, units,
+            # callbacks from top‐level WorkspaceController:
+            plot_callback,
+            domain_callback,
+            add_callback,
+            remove_callback,
+            mesh_callback,
+            init_mag_callback,
+    ):
+        # instantiate each feature now that dims/units are known
+        self.geometry = GeometryController(
+            system=system,
+            dims=dims, units=units,
+            plot_callback=plot_callback,
+            domain_callback=domain_callback,
+            add_callback=add_callback,
+            remove_callback=remove_callback,
+        )
+
+        self.system_init = SystemInitController(
+            system=system,
+            dims=dims, units=units,
+            mesh_callback=mesh_callback,
+            init_mag_callback=init_mag_callback,
+        )
+
+        # wire up after-mesh changes
+        self.system_init.panels['Mesh'].set_state_callback(mesh_callback)
+        self.system_init.panels['Initial fields'].set_state_callback(init_mag_callback)
+        self.system_init.panels['Subregions in mesh'].set_state_callback(mesh_callback)
+
+        # assemble into a Tab
+        self.tab = widgets.Tab(
+            children=[self.geometry.build(), self.system_init.build()],
+            layout=widgets.Layout(width='100%', height='100%')
+        )
+
+        self.tab.set_title(0, "Geometry")
+        self.tab.set_title(1, "System Init.")
+
+    def build(self):
+        """
+        Called by WorkplaceController.render().
+
+        Returns our wired tab.
+        """
+        return self.tab

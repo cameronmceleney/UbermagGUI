@@ -52,7 +52,9 @@ class UbermagInterface:
         # 3) convert user units → SI
         # Units are only Ubermag property that can't be nicely stored in System
         # during user's first interactions
+        self.dims = dims
         self.units = units_to_meter_factors(units)
+        self.cellsize = cellsize
 
         # 4) viewport (3D plotting area)
         self.viewports = ViewportsController()
@@ -60,7 +62,9 @@ class UbermagInterface:
         # 5.1) workspace controller (Geometry + System Init + ...)
         self.workspaces = WorkspaceController(
             system=self.system,
-            plot_callback=self.viewports.plot_regions
+            plot_callback=self.viewports.plot_regions,
+            dims=self.dims,
+            units=self.units
         )
         # 5.2) outliner controller (show regions + ...)
         self.outliner = OutlinerController(self.workspaces)
