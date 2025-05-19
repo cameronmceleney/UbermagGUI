@@ -25,68 +25,84 @@ from IPython.display import display
 # Local application imports
 from .scenes.region_lists import RegionListReadOnly
 
-logger = logging.getLogger(__name__)
-
 __all__ = ["OutlinerController"]
+
+logger = logging.getLogger(__name__)
 
 
 class OutlinerController:
-    def __init__(self, workspace_controller):
+    def __init__(self, properties_controller, workspace_controller):
         """
+        Orchestrates the read-only region list feature.
+
         Parameters
         ----------
+        properties_controller : _CoreProperties
+            Shared state container (meshes, regions, etc.)
         workspace_controller : WorkspaceController
-            The top‐level controller owning global state.
+            Top-level controller to subscribe for events.
         """
+        self._props = properties_controller
         self._wc = workspace_controller
+        logger.debug("OutlinerController: initialising.")
+
         # region list widget
         self._list = RegionListReadOnly()
 
-        # Subscribe to geometry and system‐init events
+        # Subscribe only geometry; other handlers are placeholders
         self._wc.register_geometry_listener(self._on_geometry_change)
-        self._wc.register_mesh_listener(self._on_mesh_created)
-        self._wc.register_init_mag_listener(self._on_init_mag_created)
+        self._wc.register_mesh_listener(self._on_geometry_change)
 
-    def _on_geometry_change(self, main_region, subregions):
-        # update with fresh geometry, keep old mesh/init_mag until they change
+        # Initial snapshot
+        self.refresh()
+
+    def _on_geometry_change(self, *args, **kwargs):
+        """Callback for geometry changes: update using current props."""
+        logger.debug("OutlinerController._on_geometry_change: args=%r, kwargs=%r", args, kwargs)
+
+        # Determine active mesh name (first in dict) or None
+        mesh_names = list(self._props.meshes.keys())
+        mesh_name = mesh_names[0] if mesh_names else None
+
+        # Determine main region name under domain_key
+        main_region = self._props.main_region
+        region_name = None
+        if main_region is not None:
+            # domain_key is 'main'
+            region_name = self._props._domain_key
+
+        subregion_names = [n for n in self._props.regions.keys() if n != self._props._domain_key]
+
         self._list.update(
-            main_region=main_region,
-            subregions=subregions,
-            mesh=self._wc.mesh,
-            init_mag=self._wc.init_mag
+            mesh_name=mesh_name,
+            region_name=region_name,
+            subregions=subregion_names
         )
+        logger.success("OutlinerController._on_geometry_change: geometry outliner updated (mesh=%r).", mesh_name)
 
-    def _on_mesh_created(self, mesh):
-        # update with new mesh
-        self._list.update(
-            main_region=self._wc.main_region,
-            subregions=self._wc.subregions,
-            mesh=mesh,
-            init_mag=self._wc.init_mag
-        )
+    @staticmethod
+    def _on_mesh_created(self, mesh, *args, **kwargs):
+        logger.debug("OutlinerController._on_mesh_created: mesh=%r (not yet handled).", mesh)
 
-    def _on_init_mag_created(self, init_mag):
-        # update with new initial magnetisation
-        self._list.update(
-            main_region=self._wc.main_region,
-            subregions=self._wc.subregions,
-            mesh=self._wc.mesh,
-            init_mag=init_mag
-        )
+    @staticmethod
+    def _on_init_mag_created(self, init_mag, *args, **kwargs):
+        logger.debug("OutlinerController._on_init_mag_created: init_mag=%r (not yet handled).", init_mag)
 
-    def build(self) -> widgets.Widget:
+    def build(self) -> widgets.Box:
         """
         Return the Outliner widget to be placed in the interface.
         """
-        return self._list.widget
+        box = widgets.Box(
+            children=[self._list.widget],
+            layout=widgets.Layout(
+                widget='100%',
+                height='100%', min_height='0',
+                overflow_y='auto'
+            )
+        )
+        return box
 
     def refresh(self):
-        """
-        Force a refresh from current state.
-        """
-        self._list.update(
-            main_region=self._wc.main_region,
-            subregions=self._wc.subregions,
-            mesh=self._wc.mesh,
-            init_mag=self._wc.init_mag
-        )
+        logger.debug("OutlinerController.refresh(): performing initial update.")
+        # Simply re-use geometry handler
+        self._on_geometry_change()

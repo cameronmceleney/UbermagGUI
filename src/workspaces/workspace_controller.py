@@ -17,6 +17,7 @@ Version:     0.1.0
 import logging
 import ipywidgets as widgets
 from ipywidgets import Layout
+from ipywidgets import Layout
 from IPython.display import display
 import typing
 
@@ -25,8 +26,8 @@ import micromagneticmodel as mm
 import discretisedfield as df
 
 # Local application imports
-# you would import, e.g., OutlinerWorkspace, EquationsWorkspace, ViewportWorkspace here
-from .initialisation.controllers import GeometryController, SystemInitController, InitialisationController
+from src.workspaces.initialisation.controllers import InitialisationController
+from src.config.dataclass_containers import _CoreProperties
 # from .outliner import OutlinerWorkspace
 # from .equations.controllers import EnergyController, DynamicsController
 # from .viewport.workspace import ViewportWorkspace
@@ -52,19 +53,18 @@ class WorkspaceController:
 
     def __init__(
             self,
-            system: mm.System,
+            properties_controller: _CoreProperties,
             plot_callback,
-            dims,
-            units
     ):
         """
         Parameters
         ----------
-        system : mm.System
-            Your one‐and‐only micromagnetic system.
-        plot_callback : callable
+        properties_controller:
+            Core interface instances inc. mm.System
+        plot_callback :
             Typically: viewport_area.plot_regions
         """
+        self._props_controller = properties_controller
         self._plot_callback = plot_callback
 
         # ——— listener lists for any outside subscriber (e.g. OutlinerController) ———
@@ -72,18 +72,10 @@ class WorkspaceController:
         self._mesh_listeners: typing.List[typing.Callable[[df.Mesh], None]] = []
         self._init_mag_listeners: typing.List[typing.Callable[[df.Field], None]] = []
 
-        # States shared across all Initialisation workspaces
-        self.main_region = None
-        self.subregions = {}
-        self.mesh = None
-        self.init_mag = None
-
         self.workspaces = {
             'Initialisation': InitialisationController(
-                system,
-                dims,
-                units,
-                plot_callback=self._plot_regions,
+                properties_controller=self._props_controller,
+                workspace_controller=self,
                 domain_callback=self._on_domain,
                 add_callback=self._add_subregion,
                 remove_callback=self._remove_subregion,
@@ -101,7 +93,8 @@ class WorkspaceController:
         )
         self.selector.observe(self._on_workspace_change, names='value')
 
-        self.output = widgets.Output(layout=Layout(overflow='auto'))
+        self.output = widgets.Output(layout=Layout(
+            width='100%', height='100%', min_height='0', overflow_x='hidden', overflow_y='auto'))
 
     def _on_workspace_change(self, change):
         if change['name'] == 'value':
@@ -114,13 +107,12 @@ class WorkspaceController:
         with self.output:
             display(ws.build())
 
-    def build(self):
+    def build(self) -> widgets.Output:
         """Return the assembled menu + workspace pane."""
         # select first tab to get content populated
         # initialize selection only once
         if not hasattr(self, '_initialized'):
             self.selector.value = list(self.workspaces.keys())[0]
-            self._initialized = True
         # render the currently‐selected sub‐workspace into self.output
         self.render()
 
@@ -139,7 +131,9 @@ class WorkspaceController:
         self._geometry_listeners.append(cb)
 
     # — plot proxy —
-    def _plot_regions(self, main_region, subregions, show_domain=True):
+    def _plot_regions(self, main_region: df.Region, subregions: dict[str, df.Region], show_domain: bool = True):
+        """Wired to ViewpointsController.plot_regions"""
+        logger.debug("WorkspaceController._plot_regions: attempting to update Viewports area" )
         if self._plot_callback:
             self._plot_callback(main_region, subregions, show_domain)
 
@@ -147,25 +141,43 @@ class WorkspaceController:
         for cb in self._geometry_listeners:
             cb(main_region, subregions)
 
-        return
+        logger.success("WorkspaceController._plot_regions:")
 
     # ---- geometry state mutators  ----
     def _on_domain(self, region):
-        self.main_region = region
-        self.subregions.clear()
-        self._after_geometry_change()
+        logger.debug("WorkspaceController._on_domain: got new domain %r", region)
+        self._props_controller._main_region = region
 
-        # notify geometry subscribers on explicit domain‐set
-        for cb in self._geometry_listeners:
-            cb(self.main_region, self.subregions)
+        try:
+            self._after_geometry_change()
+        except Exception:
+            logger.exception("WorkspaceController._on_domain: Error while redrawing after domain change")
+
+        logger.success("WorkspaceController._on_domain: set new domain %r", region)
 
     def _add_subregion(self, subregion_name: str, region):
-        self.subregions[subregion_name] = region
-        self._after_geometry_change()
+        logger.debug("WorkspaceController._add_subregion: got new region [%r] %r",
+                     subregion_name, region)
+        self._props_controller._add_region(subregion_name, region)
+
+        try:
+            self._after_geometry_change()
+        except Exception:
+            logger.exception("WorkspaceController._add_subregion: Error while redrawing after adding a region.")
+
+        logger.success("WorkspaceController._add_subregion: added new region [%r] %r", subregion_name, region)
 
     def _remove_subregion(self, subregion_name: str):
-        self.subregions.pop(subregion_name, None)
-        self._after_geometry_change()
+        logger.debug("WorkspaceController._remove_subregion: got removal request for region [%r]",
+                     subregion_name)
+        self._props_controller._remove_region(subregion_name)
+
+        try:
+            self._after_geometry_change()
+        except Exception:
+            logger.exception("WorkspaceController._remove_subregion: Error while redrawing after removing a region.")
+
+        logger.success("WorkspaceController._remove_subregion: removed region [%r].", subregion_name)
 
     def _after_geometry_change(self):
         """
@@ -173,19 +185,21 @@ class WorkspaceController:
          - redraw the viewport
          - (if you had an outliner workspace, refresh it here)
         """
-        self._plot_regions(self.main_region, self.subregions, True)
+        #for cb in self._geometry_listeners:
+        #    cb(self._props_controller.main_region, self._props_controller.regions)
+        self._plot_regions(self._props_controller.main_region, self._props_controller.regions, True)
 
     # ---- system‐init state mutators ----
     def _on_mesh_created(self, mesh):
         logger.success("WorkspaceController got mesh: %r", mesh)
-        self.mesh = mesh
+        self._props_controller._main_mesh = mesh
 
         # notify mesh subscribers
         for cb in self._mesh_listeners:
             cb(mesh)
 
         # notify geometry controller to sync base-mesh options in DropDown widget
-        #if hasattr(self.workspaces, 'refresh_mesh_dropdown'):
+        # if hasattr(self.workspaces, 'refresh_mesh_dropdown'):
         #    self.system_init_ctrl.refresh_mesh_dropdown()
 
     def register_mesh_listener(self, cb: typing.Callable):
@@ -193,7 +207,7 @@ class WorkspaceController:
 
     def _on_init_mag_created(self, field):
         logger.success("WorkspaceController got init‐mag: %r", field)
-        self.init_mag = field
+        self._props_controller._set_initial_magnetisation(field)
 
         # notify init‐mag subscribers
         for cb in self._init_mag_listeners:

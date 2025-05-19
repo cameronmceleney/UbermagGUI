@@ -1,16 +1,26 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
+Project: UbermagGUI
+Path:    src/workspaces/initialisation/regions/append.py
+
 AppendRegionToExisting:
     Extrude a new subregion off a base region (main or existing).
 """
+# Standard library imports
 import logging
-
 import ipywidgets as widgets
 from ipywidgets import Layout
+
+# Third-party imports
 from src.helper_functions import create_scaled_region_from_base_region
 
+# Local application imports
+
+
 __all__ = ["AppendRegionUsingBase"]
+
+logger = logging.getLogger(__name__)
 
 
 class AppendRegionUsingBase:
@@ -18,7 +28,7 @@ class AppendRegionUsingBase:
         # callback to WorkspaceController.add_subregion(name,region)
         self._state_cb   = None
         # will be set in build()
-        self._controller   = None
+        self._sys_props   = None
 
         # placeholders for widgets
         self.text_region_name = None
@@ -35,21 +45,22 @@ class AppendRegionUsingBase:
         """
         self._state_cb = cb
         # if the button already exists, re-wire it
-        if self.btn_append is not None:
+        if self._state_cb and getattr(self, "btn_append", None):
             self.btn_append.on_click(self._on_append)
 
-    def build(self, controller):
+    def build(self, context):
         """
         Build and return the UI for appending a subregion.
         Capture controls_panel so we can read dims/units and existing subregions.
         """
-        self._controller = controller
+        self._sys_props = context
         # Dynamically collect children
         append_panel = widgets.VBox(
-            layout=Layout(
-                width='auto',
-                height='auto',
-                overflow="auto",
+            layout=widgets.Layout(
+                width='100%',
+                height='100%',
+                overflow_y='auto',
+                overflow_x='hidden',
                 padding="4px"
             ),
         )
@@ -86,7 +97,7 @@ class AppendRegionUsingBase:
         html_base_name = widgets.HTML(
             value="Base region",
         )
-        bases = ["main"] + list(self._controller.subregions.keys())
+        bases = list(self._sys_props.regions.keys())
         self.dd_base = widgets.Dropdown(
             options=bases,
             layout=Layout(width="40%")
@@ -163,14 +174,14 @@ class AppendRegionUsingBase:
             style={'button_width': 'auto'}
         )
 
+        # always wire the click -> our handler; callback stored in self._state_cb
+        self.btn_append.on_click(self._on_append)
+
         btn_box = widgets.HBox(
             [self.btn_append],
             layout=Layout(justify_content='center', width='100%')
         )
         panel_children.append(btn_box)
-
-        if self._state_cb:
-            self.btn_append.on_click(self._on_append)
 
         append_panel.children = tuple(panel_children)
         return append_panel
@@ -191,16 +202,16 @@ class AppendRegionUsingBase:
 
         # gather inputs
         base_key = self.dd_base.value
-        axis     = self.tb_axis.value
-        side     = self.tb_side.value
-        scale_mode   = self.dd_scale_mode.value
+        axis = self.tb_axis.value
+        side = self.tb_side.value
+        scale_mode = self.dd_scale_mode.value
         scale_amount = self.ftext_scale_amount.value
 
         # lookup parent region
         parent = (
-            self._controller.main_region
+            self._sys_props.main_region
             if base_key == "main"
-            else self._controller.subregions.get(base_key)
+            else self._sys_props.regions.get(base_key)
         )
         if parent is None:
             self.btn_append.button_style = "danger"
@@ -211,7 +222,7 @@ class AppendRegionUsingBase:
         new_region = create_scaled_region_from_base_region(
             base_region=parent,
             scale_amount=scale_amount,
-            cellsize=self._controller.cellsize,
+            cellsize=self._sys_props.cell,
             reference_side=side,
             scale_along_axis=axis,
             scale_is_absolute=(scale_mode == "absolute")
@@ -256,8 +267,8 @@ class AppendRegionUsingBase:
         html_rel = widgets.HTMLMath(
             value=(
                 r"unit cells where<br>"
-                rf"\(\Delta d_{{{self.tb_axis.value}}} = {self._controller.cellsize[ax]}\)"
-                f" {self._controller.units[ax]}"
+                rf"\(\Delta d_{{{self.tb_axis.value}}} = {self._sys_props.cell[ax]}\)"
+                f" {self._sys_props.units[ax]}"
             ),
             layout=Layout(width="auto", overflow_x='visible')
         )
@@ -268,7 +279,7 @@ class AppendRegionUsingBase:
 
         # 4b) Absolute (distance) box
         html_abs = widgets.HTMLMath(
-            value=f"{self._controller.units[ax]}",
+            value=f"{self._sys_props.units[ax]}",
             layout=Layout(width="auto")
         )
         hbox_abs = widgets.HBox(

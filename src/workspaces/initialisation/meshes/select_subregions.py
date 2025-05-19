@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Project: Ubermag
-Path:    include/Uberwidgets/region_designer_interface/initialisation/fields/select_subregions.py
+Project: UbermagGUI
+Path:    src/workspaces/initialisation/meshes/select_subregions.py
 
 SelectSubregionsInMesh:
     UI to include/exclude subregions in a given df.Mesh.
@@ -23,21 +23,20 @@ import discretisedfield as df
 
 # Local application imports
 
-logger = logging.getLogger(__name__)
-
 __all__ = ["SelectSubregionsInMesh"]
+
+logger = logging.getLogger(__name__)
 
 
 class SelectSubregionsInMesh:
     def __init__(self):
-        self._state_cb = None
-        self._plot_cb = None
-        self._controls = None
+        self._mesh_cb = None
+        self._sys_props = None
 
         # widgets
         self.dd_mesh = None
-        self.available = None    # SelectMultiple of all subregions
-        self.selected = None     # SelectMultiple of chosen ones
+        self.available = None
+        self.selected = None
         self.btn_rebuild = None
 
         # internal set of currently chosen subregions
@@ -45,11 +44,13 @@ class SelectSubregionsInMesh:
 
     def set_state_callback(self, cb):
         """Register callback to receive the new df.Mesh."""
-        self._state_cb = cb
+        self._mesh_cb = cb
 
-    def build(self, controls_panel) -> widgets.VBox:
+    def build(self, context) -> widgets.VBox:
         """Build the UI for selecting subregions and rebuilding mesh."""
-        self._controls = controls_panel
+        self._sys_props = context
+        logger.debug("SelectSubregionsInMesh.build: constructing UI")
+
         panel = widgets.VBox(
             layout=widgets.Layout(
                 width='auto',
@@ -60,11 +61,8 @@ class SelectSubregionsInMesh:
         )
         children = []
 
-        # 1) Explanation
-        html_explainer = widgets.HTML(
-            "<b>Include/exclude subregions in the selected mesh.</b>"
-        )
-        children.append(html_explainer)
+        children.append(widgets.HTML("<b>Include/exclude subregions</b>"))
+        children.append(widgets.HTML("Select which defined regions to include:"))
 
         html_base_mesh = widgets.HTML(
             "For a given base mesh",
@@ -88,26 +86,10 @@ class SelectSubregionsInMesh:
         )
         children.append(hbox_base_mesh)
 
-        html_selection_process = widgets.HTML(
-            value=", choose which regions to include as the mesh's subregions. "
-                  "It's the responsibility of the user to ensure that the subregions are "
-                  "defined appropriately. ",
-            layout=widgets.Layout(
-                flex='1 1 auto',
-                min_width='0',
-                overflow='visible'
-            )
-        )
-        children.append(html_selection_process)
-
+        # Two SelectMultiple in column-view: Available v. Included regions in mesh
         self._build_selection_boxes(children)
 
-        # 4) Rebuild button
-        self.btn_rebuild = widgets.Button(
-            description="Rebuild Mesh",
-            button_style="primary",
-            layout=Layout(width="auto")
-        )
+        self.btn_rebuild = widgets.Button(description="Rebuild Mesh", button_style="primary",)
         self.btn_rebuild.on_click(self._on_rebuild)
         children.append(widgets.HBox([self.btn_rebuild], layout=Layout(justify_content="center")))
 
@@ -118,10 +100,12 @@ class SelectSubregionsInMesh:
         return panel
 
     def _on_mesh_select(self, change):
-        """When they pick a mesh, seed `_chosen` from its .subregions."""
-        if change.get("new") and self._controls.mesh is not None:
+        """When they pick a mesh, seed ``_chosen`` from its .subregions."""
+        new = change['new']
+        logger.debug("SelectSubregionsInMesh._on_mesh_select: %r", new)
+        if new and self._sys_props.main_mesh:
             # grab whatever subregions the mesh currently has
-            self._chosen = list(self._controls.mesh.subregions.keys())
+            self._chosen = list(self._sys_props.main_mesh.subregions.keys())
         else:
             self._chosen = []
         self.refresh()
@@ -131,14 +115,14 @@ class SelectSubregionsInMesh:
         Refresh both lists when controls.subregions or controls.mesh changes.
         """
         # mesh dropdown
-        if not getattr(self, "_controls", None) or self.dd_mesh is None:
+        if not getattr(self, "_sys_props", None) or self.dd_mesh is None:
             return
 
-        has_mesh = bool(self._controls and self._controls.mesh)
+        has_mesh = bool(self._sys_props and self._sys_props.main_mesh)
 
         # TODO. List of domain will be dynamic in the future.
         # (Re)Set mesh dropdown here, else panel omits current mesh's subregion(s)
-        opts = [] if not has_mesh else [("main mesh", "main")]
+        opts = [] if not has_mesh else [("main", "main")]
         old = self.dd_mesh.value
         self.dd_mesh.options = opts
 
@@ -148,7 +132,7 @@ class SelectSubregionsInMesh:
         self.btn_rebuild.disabled = not has_mesh
 
         # 3) lists: available = defined minus chosen; included = chosen
-        all_names = list(self._controls.subregions.keys())
+        all_names = list(self._sys_props.regions.keys())
         self.available.options = [n for n in all_names if n not in self._chosen]
         # selected = exactly the mesh’s current chosen
         self.selected.options = self._chosen
@@ -172,32 +156,31 @@ class SelectSubregionsInMesh:
 
     def _on_rebuild(self, _):
         """Re-create the mesh with only the chosen subregions."""
-        if not (self._controls.mesh and self._controls.mesh):
+        logger.debug("SelectSubregionsInMesh._on_rebuild: chosen=%r", self._chosen)
+        old_mesh = self._sys_props.main_mesh
+        if not old_mesh:
             self.btn_rebuild.button_style = "danger"
             return
 
-        old_mesh = self._controls.mesh
-        subs = {name: self._controls.subregions[name] for name in self._chosen}
+        subs = {name: self._sys_props.regions[name] for name in self._chosen}
 
         try:
-            # gather subregions dict
             new_mesh = df.Mesh(
                 region=old_mesh.region,
-                cell=self._controls.cellsize,
+                cell=self._sys_props.cell,
                 subregions=subs,
-                bc=getattr(old_mesh, "bc", '')
+                bc=getattr(old_mesh, 'bc', '')
             )
         except Exception as e:
-            logger.error(f"Failed to rebuild mesh '{self.dd_mesh.value}': {e}", exc_info=True)
+            logger.error("SelectSubregionsInMesh._on_rebuild: Rebuild failed: %s", e, exc_info=True)
             self.btn_rebuild.button_style = "danger"
             return
 
         self.btn_rebuild.button_style = "success"
         logger.success(f"Rebuilt mesh '{self.dd_mesh.value}' with subregions: {self._chosen}")
 
-        # emit the new mesh
-        if self._state_cb:
-            self._state_cb(new_mesh)
+        if self._mesh_cb:
+            self._mesh_cb(new_mesh)
 
     def _build_selection_boxes(self, panel_children):
         """
@@ -205,9 +188,21 @@ class SelectSubregionsInMesh:
         [ Available-column | → | Included-column ] where each column
         is a VBox(label over SelectMultiple).
         """
+        html_selection_process = widgets.HTML(
+            value=", choose which regions to include as the mesh's subregions. "
+                  "It's the responsibility of the user to ensure that the subregions are "
+                  "defined appropriately. ",
+            layout=widgets.Layout(
+                flex='1 1 auto',
+                min_width='0',
+                overflow='visible'
+            )
+        )
+        panel_children.append(html_selection_process)
+
         # Available column
         col_avail, self.available = self._make_column(
-            "Available", list(self._controls.subregions)
+            "Available", list(self._sys_props.regions)
         )
         self.available.observe(self._on_add, names="value")
 

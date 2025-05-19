@@ -23,11 +23,13 @@ Created:     12 May 2025
 IDE:         PyCharm
 Version:     0.1.0
 """
+from __future__ import annotations
 
 # Standard library imports
 import ipywidgets as widgets
 from IPython.display import display
 import logging
+import typing
 
 # Third-party imports
 import discretisedfield as df
@@ -47,19 +49,22 @@ __all__ = [
 
 
 class HandleFeature:
-    def __init__(self, system, dims, units):
+    def __init__(
+            self,
+            properties_controller
+    ):
         """
         Parent abstract class to help with buildings features that controllers will manage.
         """
-        # Shared context for all panels
-        self.system = system
-        self.dims = dims
-        self.units = units
-
-        # Filled in by build_feature()
+        # Live states come from workspace_controller.py inheritance
+        # Live states come from builder.py/UbermagInterface inheritance
+        self._props_controller = properties_controller
+        # Filled in by build_feature() of each feature controller
         self.panels = {}
         self.selector: widgets.ToggleButtons = widgets.ToggleButtons()
-        self.content: widgets.Output = widgets.Output(layout=widgets.Layout(overflow="auto"))
+        self.panels_container: widgets.Box = widgets.Box()  # TODO. Get working
+        self.content: widgets.Output = widgets.Output(
+            layout=widgets.Layout(width='100%', height='100%', min_height='0', overflow_x="hidden", overflow_y='auto'))
 
     def build_feature(self, panel_map: dict) -> widgets.GridspecLayout:
         """
@@ -71,8 +76,8 @@ class HandleFeature:
         """
         # Stash for children
         self.panels = panel_map
-
-        self._build_toggles_with_wiring()
+        # Rebuilt toggles and initialise to first tab
+        self.selector = self._build_toggles_with_wiring()
 
         # Build feature
         grid = widgets.GridspecLayout(
@@ -90,9 +95,15 @@ class HandleFeature:
         grid[0, 0] = self.selector
         grid[0, 1] = self.content
 
+        # — render the initially‐selected panel immediately —
+        first = self.selector.value
+        panel = self.panels[first]
+        with self.content:
+            display(panel.build(self._props_controller))
+
         return grid
 
-    def _build_toggles_with_wiring(self):
+    def _build_toggles_with_wiring(self) -> widgets.ToggleButtons:
         """
         Construct the ToggleButtons used to change between panels of this feature, and setup the
         wiring required by `workspace_controller.py` and other higher-level controllers.
@@ -121,31 +132,29 @@ class HandleFeature:
         )
 
         selector.observe(self._on_select, names='value')
-        self.selector = selector
 
-        # Initialise to first tab
-        self.selector.value = names[0]
+        selector.value = names[0]
+
+        return selector
 
     def _on_select(self, change: dict):
         if change.get('name') == 'value':
             panel = self.panels[change['new']]
             self.content.clear_output()
             with self.content:
-                display(panel.build(self))
+                # pass the workspace‐controller as context
+                display(panel.build(self._props_controller))
 
 
 class GeometryController(HandleFeature):
     def __init__(
             self,
-            system,
-            plot_callback,
-            dims,
-            units,
+            properties_controller,
             domain_callback,
             add_callback,
             remove_callback,
     ):
-        super().__init__(system, dims, units)
+        super().__init__(properties_controller)
 
         # All panels in feature
         self.panels = {
@@ -167,11 +176,12 @@ class GeometryController(HandleFeature):
 class SystemInitController(HandleFeature):
     def __init__(
             self,
-            system, dims, units,
+            properties_controller,
+            workspace_controller,
             mesh_callback,
-            init_mag_callback
+            init_mag_callback,
             ):
-        super().__init__(system, dims, units)
+        super().__init__(properties_controller)
 
         # panels for each step
         self.panels = {
@@ -185,23 +195,30 @@ class SystemInitController(HandleFeature):
         self.panels['Initial fields'].set_state_callback(init_mag_callback)
         self.panels['Subregions in mesh'].set_state_callback(mesh_callback)
 
+        # *** subscribe to geometry/mesh changes so dropdowns stay in sync ***
+        # whenever a region is defined or removed:
+        workspace_controller.register_geometry_listener(
+            lambda main, subs: self.panels['Mesh'].refresh(
+                list(subs.keys())
+            )
+        )
+
+        # whenever a mesh is built or rebuilt:
+        workspace_controller.register_mesh_listener(
+            lambda mesh: (self.panels['Initial fields'].refresh(),
+                          self.panels['Subregions in mesh'].refresh()
+                          )
+        )
+
+        # TODO. Fix the horrid refresh arg.
+        workspace_controller.register_mesh_listener(
+            lambda mesh: self.panels['Mesh'].refresh(
+                ['main'] + [n for n in self._props_controller.regions if n != 'main']
+            )
+        )
+
     def build(self) -> widgets.GridspecLayout:
         return self.build_feature(self.panels)
-
-    def refresh_mesh_dropdown(self):
-        """
-        Helper to keep the base-region dropdown in sync whenever subregions change.
-        """
-        mesh_panel = self.panels.get("Mesh")
-        if not mesh_panel:
-            return
-
-        if self.system.main_region is None:
-            mesh_panel.dd_base_region.options = []
-            mesh_panel.dd_base_region.value = None
-        else:
-            bases = ["main"] + list(self.system.subregions.keys())
-            mesh_panel.refresh(bases)
 
 
 class InitialisationController:
@@ -210,50 +227,45 @@ class InitialisationController:
     """
     def __init__(
             self,
-            system, dims, units,
+            # access to top-level shared attributes
+            properties_controller,
+            workspace_controller,
             # callbacks from top‐level WorkspaceController:
-            plot_callback,
             domain_callback,
             add_callback,
             remove_callback,
             mesh_callback,
             init_mag_callback,
     ):
-        # instantiate each feature now that dims/units are known
+        # instantiate each feature; wired handled by feature's controller
         self.geometry = GeometryController(
-            system=system,
-            dims=dims, units=units,
-            plot_callback=plot_callback,
+            properties_controller=properties_controller,
             domain_callback=domain_callback,
             add_callback=add_callback,
             remove_callback=remove_callback,
         )
 
         self.system_init = SystemInitController(
-            system=system,
-            dims=dims, units=units,
+            properties_controller=properties_controller,
+            workspace_controller=workspace_controller,
             mesh_callback=mesh_callback,
             init_mag_callback=init_mag_callback,
         )
 
-        # wire up after-mesh changes
-        self.system_init.panels['Mesh'].set_state_callback(mesh_callback)
-        self.system_init.panels['Initial fields'].set_state_callback(init_mag_callback)
-        self.system_init.panels['Subregions in mesh'].set_state_callback(mesh_callback)
-
-        # assemble into a Tab
-        self.tab = widgets.Tab(
-            children=[self.geometry.build(), self.system_init.build()],
-            layout=widgets.Layout(width='100%', height='100%')
-        )
-
-        self.tab.set_title(0, "Geometry")
-        self.tab.set_title(1, "System Init.")
-
-    def build(self):
+    def build(self) -> widgets.Tab:
         """
         Called by WorkplaceController.render().
 
         Returns our wired tab.
         """
-        return self.tab
+        tab = widgets.Tab(
+            children=[self.geometry.build(), self.system_init.build()],
+            layout=widgets.Layout(
+                width='100%', height='100%'
+            )
+        )
+
+        tab.set_title(0, "Geometry")
+        tab.set_title(1, "System Init.")
+
+        return tab

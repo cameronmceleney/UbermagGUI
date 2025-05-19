@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Project: Ubermag
-Path:    include/Uberwidgets/region_designer_interface/initialisation/fields/create_mesh.py
+Project: UbermagGUI
+Path:    src/workspaces/initialisation/meshes/create_mesh.py
 
 Description:
 
-    MeshPanel: define your df.Mesh for the micromagnetic System.
+    CreateMesh: define your df.Mesh for the micromagnetic System.
 
     The user selects a region (default `main_region`), boundary conditions
     for each axis, and clicks "Build Mesh". On success, a Mesh object
@@ -35,24 +35,22 @@ class CreateMesh:
     def __init__(self):
         # callback to ControlsPanel: receives a Mesh instance
         self._mesh_cb = None
-        self._plot_cb = None
-        self._controls = None
+        self._sys_props = None
 
         # widgets
         self.dd_base_region = None
         self.dd_bc_type = None
-        self.ckk_bc_x = None
-        self.ckk_bc_y = None
-        self.ckk_bc_z = None
+        self.ckk_bc_x = self.ckk_bc_y = self.ckk_bc_z = None
         self.btn_build_mesh = None
 
     def set_state_callback(self, cb):
         """Register ControlsPanel.set_mesh (or similar)."""
         self._mesh_cb = cb
 
-    def build(self, controls_panel) -> widgets.VBox:
+    def build(self, context) -> widgets.VBox:
         """Build and return the UI for mesh creation."""
-        self._controls = controls_panel
+        self._sys_props = context
+        logger.debug("CreateMesh.build: constructing UI")
 
         panel = widgets.VBox(
             layout=widgets.Layout(
@@ -64,34 +62,22 @@ class CreateMesh:
         )
         children = []
 
-        # 1) Explanation
-        html_explainer = widgets.HTML(
-            "<b>Generate mesh.</b>"
-        )
-        children.append(html_explainer)
+        children.append(widgets.HTML("<b>Generate mesh.</b>"))
 
-        # Introductory text to the panel
-        html_intro = widgets.HTML(
+        children.append(widgets.HTML(
             value="Discretise a base region using a regular finite-difference method "
                   "to obtain a mesh. ",
-            layout=widgets.Layout(
-                width='auto',
+            layout=widgets.Layout(width='auto',)
             )
         )
-        children.append(html_intro)
 
-        # 1) Region selector
+        # base‐region dropdown
         html_base_region = widgets.HTML(
             value="Base region for mesh",
         )
 
-        # 'Domain' region always called 'main'
-        if self._controls.main_region is None:
-            options_base_region = []
-        else:
-            options_base_region = ['main'] + list(self._controls.subregions.keys())
+        # 'Domain' aliased internally to 'main'; options are added in refresh()
         self.dd_base_region = widgets.Dropdown(
-            options=options_base_region,
             layout=widgets.Layout(width="40%")
         )
 
@@ -107,23 +93,24 @@ class CreateMesh:
         )
         children.append(hbox_base_region)
 
-        # 2) Stack that rotates through BC options
+        # boundary‐conditions are dictated by what Ubermag supports
         self._build_boundary_conditions(children)
 
-        # 3) Build mesh button
-        self.btn_build_mesh = widgets.Button(
-            description="Build Mesh",
-            button_style='primary',
-            layout=widgets.Layout(width="auto")
-        )
+        self.btn_build_mesh = widgets.Button(description="Build Mesh", button_style='primary',)
         self.btn_build_mesh.on_click(self._on_create_mesh)
 
-        btn_box = widgets.HBox(
-            [self.btn_build_mesh],
-            layout=widgets.Layout(justify_content="center", padding='4px'))
-        children.append(btn_box)
+        children.append(
+            widgets.HBox([self.btn_build_mesh],
+                         layout=widgets.Layout(justify_content="center", padding='4px')
+                         )
+        )
 
         panel.children = tuple(children)
+
+        # initial populate and enable
+        bases = list(self._sys_props.regions.keys()) if self._sys_props.main_region else []
+        self.refresh(bases)
+
         return panel
 
     def refresh(self, bases):
@@ -131,10 +118,9 @@ class CreateMesh:
         Refresh region dropdown when subregions change.
         `bases` must be ['main', sub1, sub2, …].
         """
-
-        if self._controls.main_region is None:
+        logger.debug("CreateMesh.refresh: bases=%r", bases)
+        if not bases:
             self.dd_base_region.options = []
-            self.dd_base_region.value = None
             self.btn_build_mesh.disabled = True
             return
 
@@ -148,18 +134,17 @@ class CreateMesh:
         """Instantiate df.Mesh from UI and invoke the callback."""
         key = self.dd_base_region.value
 
-        # select base region
-        parent = (self._controls.main_region if key=='main' else self._controls.subregions.get(key))
-        if parent is None:
+        base_region = self._sys_props.regions.get(key)
+        if base_region is None:
             self.btn_build_mesh.button_style = 'danger'
             return
 
+        bc = self._on_dropdown_bc()
         try:
             mesh = df.Mesh(
-                region=parent,
-                cell=self._controls.cellsize,
-                subregions={},
-                bc=self._on_dropdown_bc()
+                region=base_region,
+                cell=self._sys_props.cell,
+                bc=bc
             )
         except Exception as e:
             logger.error("Mesh creation failed: %s", e, exc_info=True)
@@ -168,11 +153,11 @@ class CreateMesh:
 
         self.btn_build_mesh.button_style = 'success'
 
-        # Notify ControlsPanel of new mesh
         if self._mesh_cb:
             self._mesh_cb(mesh)
 
-        self.refresh(['main'] + list(self._controls.subregions.keys()))
+        bases = ["main"] + list(self._sys_props.regions.keys())
+        self.refresh(bases)
 
     def _build_boundary_conditions(self, children):
         """
@@ -250,7 +235,7 @@ class CreateMesh:
             layout=widgets.Layout(
                 width='100%',
                 align_items='center',
-                #justify_content='center',
+                # justify_content='center',
                 gap="4px")
         )
         
@@ -284,7 +269,8 @@ class CreateMesh:
 
     def _on_dropdown_bc(self):
         """Return string for BC type as required by Ubermag"""
-        if self.dd_bc_type.value == 'open': return ''
+        if self.dd_bc_type.value == 'open':
+            return ''
 
         if self.dd_bc_type.value == 'periodic':
             bc = ''
@@ -301,10 +287,10 @@ class CreateMesh:
 
             return bc
 
-        if self.dd_bc_type.value == 'dirichlet': return 'dirichlet'
+        if self.dd_bc_type.value == 'dirichlet':
+            return 'dirichlet'
 
-        if self.dd_bc_type.value == 'neumann': return 'neumann'
+        if self.dd_bc_type.value == 'neumann':
+            return 'neumann'
 
         raise NotImplementedError
-
-

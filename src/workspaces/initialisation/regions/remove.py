@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Project: Ubermag
-Path:    include/Uberwidgets/region_designer_interface/regions/remove.py
+Project: UbermagGUI
+Path:    src/workspaces/initialisation/regions/remove.py
 
 Description:
     RemoveRegion: region dropdown + Delete button.
@@ -12,11 +12,18 @@ Author:      Cameron Aidan McEleney < c.mceleney.1@research.gla.ac.uk >
 Created:     29 Apr 2025
 Version:     0.1.1
 """
-
+# Standard library imports
+import logging
 import ipywidgets as widgets
 from ipywidgets import Layout
 
+# Third-party imports
+
+# Local application imports
+
 __all__ = ["RemoveRegion"]
+
+logger = logging.getLogger(__name__)
 
 
 class RemoveRegion:
@@ -24,27 +31,25 @@ class RemoveRegion:
 
         # callbacks from ControlsPanel
         self._state_cb = None  # ControlsPanel.remove_subregion
-        self._plot_cb = None   # ViewportArea.plot_regions
-        self._controls = None
+        self._sys_props = None
 
         # widgets
         self.dd_regions_in_domain = None
         self.btn_delete = None
 
     def set_state_callback(self, cb):
-        """Register ControlsPanel.remove_subregion."""
+        """Register the GeometryController callback."""
         self._state_cb = cb
 
-    def set_plot_callback(self, func):
-        """Register ViewportArea.plot_regions and bind delete click."""
-        self._plot_cb = func
+        if self._state_cb and getattr(self, "btn_delete", None):
+            self.btn_delete.on_click(self._on_delete)
 
-    def build(self, controller) -> widgets.VBox:
+    def build(self, context) -> widgets.VBox:
         """
         Build and return the UI for removing a subregion.
         Captures controller to access current subregions.
         """
-        self._controls = controller
+        self._sys_props = context
 
         # Dynamically collect children
         remove_panel = widgets.VBox(
@@ -72,7 +77,7 @@ class RemoveRegion:
         )
 
         self.dd_regions_in_domain = widgets.Dropdown(
-            options=list(self._controls.subregions.keys()),
+            options=list(self._sys_props.regions.keys()),
             layout=Layout(width="40%")
         )
 
@@ -94,6 +99,8 @@ class RemoveRegion:
             style={'button_width': 'auto',
                    'button_style': ''},
         )
+
+        # always wire the click -> our handler; callback stored in self._state_cb
         self.btn_delete.on_click(self._on_delete)
 
         btn_box = widgets.HBox(
@@ -104,26 +111,6 @@ class RemoveRegion:
 
         remove_panel.children = tuple(panel_children)
         return remove_panel
-
-    def _refresh(self):
-        remaining = list(self._controls.subregions.keys())
-        self.dd_regions_in_domain.options = remaining
-        # Do not reset .value to another region; can lead to accidental deletion if click is spammed!
-        self.dd_regions_in_domain.value = None
-
-        # Reset button color; avoids confusion
-        self.btn_delete.button_style = ''
-
-        # Redraw via Viewport callback
-        if self._plot_cb:
-            self._plot_cb(
-                self._controls.main_region,
-                self._controls.subregions,
-                self._controls.toggle_show.value,
-            )
-
-    def refresh(self):
-        self._refresh()
 
     def _on_delete(self, _):
         """Handle deletion: notify ControlsPanel, then redraw."""
@@ -137,4 +124,9 @@ class RemoveRegion:
             self._state_cb(region_name)
 
         # 2) Refresh dropdown
-        self._refresh()
+        self.dd_regions_in_domain.options = list(self._sys_props.regions.keys())
+        # Do not reset .value to another region; can lead to accidental deletion if click is spammed!
+        self.dd_regions_in_domain.value = None
+
+        # Reset button color; avoids confusion
+        self.btn_delete.button_style = ''

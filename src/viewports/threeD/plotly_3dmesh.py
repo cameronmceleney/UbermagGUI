@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 Project: UbermagGUI
-Path:    src/viewports/3d/plotly_3dmesh.py
+Path:    src/viewports/threeD/plotly_3dmesh.py
 
 Feature:
     3D mesh plotting interface 'feature' via Plotly FigureWidget. This file contains all widgets/panels
@@ -15,6 +15,7 @@ Version:     0.1.0
 """
 
 # Standard library imports
+import logging
 import numpy as np
 import plotly.graph_objs as go
 
@@ -24,6 +25,8 @@ import plotly.graph_objs as go
 from src.config.type_aliases import UNIT_FACTORS
 
 __all__ = ["Mesh3DPlot"]
+
+logger = logging.getLogger(__name__)
 
 
 class Mesh3DPlot:
@@ -38,7 +41,8 @@ class Mesh3DPlot:
         # front-end comms. between coded widget and Jupyter Notebook are established
         # Otherwise, will lead to no update being pushed to Notebook!
         self.fig = go.FigureWidget(data=[])
-        self.fig.layout.autosize = False
+        self.fig.layout.autosize = True
+
         # Now it's safe to create/update our FigureWidget
         self._init_figure_widget()
 
@@ -54,13 +58,12 @@ class Mesh3DPlot:
         user_unit = main_region.units[0]
         factor = UNIT_FACTORS.get(user_unit, 1.0)
 
-        # 1) domain
         if show_domain:
-            self._add_mesh(main_region, "domain", 0.2, factor)
+            self._add_mesh(main_region, "main", 0.2, factor)
 
-        # 2) subregions
         for name, region in subregions.items():
-            self._add_mesh(region, name, 0.6, factor)
+            if not name == 'main':
+                self._add_mesh(region, name, 0.6, factor)
 
         # compute bounds in display units to...
         pmin = np.array(main_region.pmin) / factor
@@ -104,9 +107,9 @@ class Mesh3DPlot:
         ]) / factor
 
         tris = np.array([
-            [0,1,2], [0,2,3], [4,5,6], [4,6,7],
-            [0,1,5], [0,5,4], [1,2,6], [1,6,5],
-            [2,3,7], [2,7,6], [3,0,4], [3,4,7]
+            [0, 1, 2], [0, 2, 3], [4, 5, 6], [4, 6, 7],
+            [0, 1, 5], [0, 5, 4], [1, 2, 6], [1, 6, 5],
+            [2, 3, 7], [2, 7, 6], [3, 0, 4], [3, 4, 7]
         ])
 
         self.fig.add_trace(go.Mesh3d(
@@ -146,7 +149,7 @@ class Mesh3DPlot:
         cam = dict(eye=dict(x=self.camera_eye[0], y=self.camera_eye[1], z=self.camera_eye[2]))
 
         self.fig.update_layout(
-            autosize=False,
+            autosize=True,
             minreducedwidth=200,
             minreducedheight=200,
             margin=dict(l=30, r=30, t=30, b=30),  # Plotly (default) has massive margins; suggest imposing <= 30 px

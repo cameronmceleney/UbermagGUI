@@ -1,245 +1,131 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-AppendRegionUsingBase:
-    Extrude a new subregion off a base region (main or existing).
+Project: UbermagGUI
+Path:    src/workspaces/initialisation/meshes/select_subregions.py
 
-Adapted to the new controller pattern:
- - no internal plot callback here (plotting is handled upstream)
- - only a state callback: cb(name: str, new_region: df.Region)
- - pulls dims, units, subregions, cellsize from the passed-in controller
+SelectSubregionsInMesh:
+    UI to include/exclude subregions in a given df.Mesh.
 """
-
+import logging
 import ipywidgets as widgets
 from ipywidgets import Layout
-from src.helper_functions import create_scaled_region_from_base_region
+import discretisedfield as df
 
-__all__ = ["AppendRegionUsingBase"]
+logger = logging.getLogger(__name__)
+
+__all__ = ["SelectSubregionsInMesh"]
 
 
-class AppendRegionUsingBase:
+class SelectSubregionsInMesh:
     def __init__(self):
-        # callback to WorkspaceController.add_subregion(name, region)
-        self._state_cb = None
-        # will be set in build()
-        self._controller = None
+        self._mesh_cb = None
+        self._sys_props = None
 
-        # placeholders for widgets
-        self.text_region_name = None
-        self.dd_base = None
-        self.tb_axis = None
-        self.tb_side = None
-        self.dd_scale_mode = None
-        self.ftext_scale_amount = None
-        self.btn_append = None
+        self.dd_mesh = None
+        self.available = None
+        self.selected = None
+        self.btn_rebuild = None
+
+        self._chosen = []
 
     def set_state_callback(self, cb):
-        """
-        Register the callback that accepts (name:str, region:df.Region).
-        """
-        self._state_cb = cb
-        if self.btn_append is not None:
-            # re-wire if button already exists
-            self.btn_append.on_click(self._on_append)
+        """Register callback to receive the new df.Mesh."""
+        self._mesh_cb = cb
 
-    def build(self, controller) -> widgets.VBox:
-        """
-        Build and return the UI for appending a subregion.
-        Capture controller so we can read dims/units and existing subregions.
-        """
-        self._controller = controller
-        panel_children = []
+    def build(self, context) -> widgets.VBox:
+        self._sys_props = context
+        logger.debug("SelectSubregionsInMesh.build: constructing UI")
 
-        # 1) Explanation
-        panel_children.append(
-            widgets.HTML(
-                value="Generate a new region by appending to an existing region.",
-                layout=Layout(margin="0 0 8px 0")
-            )
-        )
+        panel = widgets.VBox(layout=widgets.Layout(overflow="auto", padding="4px"))
+        children = []
 
-        # 2) New-region name
-        panel_children.append(
-            widgets.HBox(
-                [
-                    widgets.HTML(value="New region"),
-                    self.text_region_name := widgets.Text(
-                        placeholder="name", layout=Layout(width="40%")
-                    )
-                ],
-                layout=Layout(
-                    width="auto", align_items="center", justify_content="flex-end", gap="4px"
-                )
-            )
-        )
+        children.append(widgets.HTML("<b>Include/exclude subregions</b>"))
+        children.append(widgets.HTML("Select which defined regions to include:"))
 
-        # 3) Base-region dropdown
-        bases = ["main"] + list(controller.subregions.keys())
-        panel_children.append(
-            widgets.HBox(
-                [
-                    widgets.HTML(value="Base region"),
-                    self.dd_base := widgets.Dropdown(
-                        options=bases, layout=Layout(width="40%")
-                    )
-                ],
-                layout=Layout(
-                    width="auto", align_items="center", justify_content="flex-end", gap="4px"
-                )
-            )
-        )
+        # mesh dropdown
+        self.dd_mesh = widgets.Dropdown(layout=Layout(width="50%"))
+        self.dd_mesh.observe(self._on_mesh_select, names="value")
+        children.append(widgets.HBox([widgets.HTML("Mesh:"), self.dd_mesh],
+                                     layout=widgets.Layout(justify_content='space-between')))
 
-        # 4) Orientation explainer
-        panel_children.append(
-            widgets.HTMLMath(
-                value="To set the orientation of the generated region provide:",
-                layout=Layout(margin="8px 0 0 0")
-            )
-        )
+        # two columns: Available v. Included
+        self._build_selection_boxes(children)
 
-        # axis selector
-        panel_children.append(
-            widgets.HBox(
-                [
-                    widgets.HTML(value="Cartesian axis"),
-                    self.tb_axis := widgets.ToggleButtons(
-                        options=[("x", "x"), ("y", "y"), ("z", "z")],
-                        style={"button_width": "auto"}
-                    )
-                ],
-                layout=Layout(
-                    width="auto", align_items="center", justify_content="flex-end", gap="4px"
-                )
-            )
-        )
+        # rebuild button
+        self.btn_rebuild = widgets.Button(description="Rebuild Mesh", button_style="primary")
+        self.btn_rebuild.on_click(self._on_rebuild)
+        children.append(widgets.HBox([self.btn_rebuild], layout=Layout(justify_content="center")))
 
-        # side selector
-        panel_children.append(
-            widgets.HBox(
-                [
-                    widgets.HTML(value="Face along"),
-                    self.tb_side := widgets.ToggleButtons(
-                        options=[("+ve", "max"), ("-ve", "min")],
-                        style={"button_width": "auto"}
-                    )
-                ],
-                layout=Layout(
-                    width="auto", align_items="center", justify_content="flex-end", gap="4px"
-                )
-            )
-        )
+        panel.children = tuple(children)
 
-        # 5) Scaling controls
-        panel_children.extend(self._make_scaling_controls())
+        # initial populate
+        self.refresh()
+        return anel
 
-        # 6) Append button
-        panel_children.append(
-            widgets.HBox(
-                [
-                    self.btn_append := widgets.Button(
-                        description="Append region",
-                        layout=Layout(width="auto"),
-                        style={"button_width": "auto"}
-                    )
-                ],
-                layout=Layout(justify_content="center", margin="12px 0")
-            )
-        )
-        if self._state_cb:
-            self.btn_append.on_click(self._on_append)
+    def refresh(self, *_):
+        """Refresh mesh dropdown & listboxes from _CoreProperties."""
+        main_mesh = self._sys_props.main_mesh
+        mesh_opts = [] if not main_mesh else [("Main mesh", "main")]
+        logger.debug("SelectSubregionsInMesh.refresh: mesh_opts=%r, regions=%r",
+                     mesh_opts, list(self._sys_props.regions.keys()))
 
-        # wrap in a VBox
-        return widgets.VBox(
-            panel_children,
-            layout=Layout(overflow="auto", padding="4px")
-        )
+        old = self.dd_mesh.value
+        self.dd_mesh.options = mesh_opts
+        self.dd_mesh.value = old if old in {v for _, v in mesh_opts} else None
+        self.btn_rebuild.disabled = not bool(main_mesh)
 
-    def _on_append(self, _):
-        """When user clicks 'Append'—compute and fire state callback."""
-        name = self.text_region_name.value.strip()
-        if not name:
-            self.btn_append.button_style = "danger"
+        # available vs chosen
+        all_names = list(self._sys_props.regions.keys())
+        self.available.options = [n for n in all_names if n not in self._chosen]
+        self.selected.options = self._chosen
+
+    def _on_mesh_select(self, change):
+        new = change.get("new")
+        logger.debug("SelectSubregionsInMesh._on_mesh_select: %r", new)
+        if new and self._sys_props.main_mesh:
+            self._chosen = list(self._sys_props.main_mesh.subregions.keys())
+        else:
+            self._chosen = []
+        self.refresh()
+
+    def _on_rebuild(self, _):
+        logger.debug("SelectSubregionsInMesh._on_rebuild: chosen=%r", self._chosen)
+        old = self._sys_props.main_mesh
+        if not old:
+            self.btn_rebuild.button_style = "danger"
             return
 
-        # gather inputs
-        base_key     = self.dd_base.value
-        axis         = self.tb_axis.value
-        side         = self.tb_side.value
-        scale_mode   = self.dd_scale_mode.value
-        scale_amount = self.ftext_scale_amount.value
-
-        # lookup parent region
-        parent = (
-            self._controller.main_region
-            if base_key == "main"
-            else self._controller.subregions.get(base_key)
-        )
-        if parent is None:
-            self.btn_append.button_style = "danger"
+        subs = {n: self._sys_props.regions[n] for n in self._chosen}
+        try:
+            new_mesh = df.Mesh(region=old.region,
+                               cell=self._sys_props.cell,
+                               subregions=subs,
+                               bc=getattr(old, "bc", ""))
+        except Exception as e:
+            logger.error("Rebuild failed: %s", e, exc_info=True)
+            self.btn_rebuild.button_style = "danger"
             return
 
-        # compute new Region (all SI internally)
-        new_region = create_scaled_region_from_base_region(
-            base_region=parent,
-            scale_amount=scale_amount,
-            cellsize=self._controller.cellsize,
-            reference_side=side,
-            scale_along_axis=axis,
-            scale_is_absolute=(scale_mode == "absolute")
-        )
+        self.btn_rebuild.button_style = "success"
+        logger.success("Rebuilt mesh with subregions %r", self._chosen)
+        if self._mesh_cb:
+            self._mesh_cb(new_mesh)
 
-        # notify workspace controller
-        if self._state_cb:
-            self._state_cb(name, new_region)
+    def _build_selection_boxes(self, children):
+        # Available
+        col_avail, self.available = self._make_column("Available", [])
+        self.available.observe(lambda ch: None, names="value")
+        # Included
+        col_incl, self.selected = self._make_column("Included", [])
+        self.selected.observe(lambda ch: None, names="value")
 
-    def _make_scaling_controls(self):
-        """
-        Returns [ explainer HTMLMath, HBox( Dropdown + Stack ) ]
-        using controller.cellsize and controller.units.
-        """
-        ctrl = self._controller
-        # explainer
-        expl = widgets.HTMLMath(
-            value="Define how the new region will be scaled:",
-            layout=Layout(margin="8px 0 0 0")
-        )
+        arrow = widgets.HTML("<span style='font-size:1.5em;'>&rarr;</span>")
+        children.append(widgets.HBox([col_avail, arrow, col_incl],
+                                     layout=Layout(justify_content='space-between')))
 
-        # dropdown
-        modes = [("Relative", "relative"), ("Absolute", "absolute")]
-        max_label = max(len(m) for m, _ in modes)
-        dd_width = f"{max_label*1.5 + 2}ch"
-        self.dd_scale_mode = widgets.Dropdown(
-            options=modes, value="relative", layout=Layout(width=dd_width)
-        )
-
-        # FloatText
-        self.ftext_scale_amount = widgets.FloatText(
-            placeholder=1, layout=Layout(width="4rem")
-        )
-
-        # explanatory boxes
-        axis_map = {"x": 0, "y": 1, "z": 2}
-        ax = axis_map[self.tb_axis.value]
-        cell = ctrl.cellsize[ax]
-        unit = ctrl.units[ax]
-
-        box_rel = widgets.HTMLMath(
-            value=rf"unit cells where Δd_{{{self.tb_axis.value}}} = {cell}",
-            layout=Layout(overflow_x="visible")
-        )
-        box_abs = widgets.HTMLMath(value=f"{unit}")
-
-        h_rel = widgets.HBox([self.ftext_scale_amount, box_rel],
-                             layout=Layout(align_items="center", gap="4px"))
-        h_abs = widgets.HBox([self.ftext_scale_amount, box_abs],
-                             layout=Layout(align_items="center", gap="4px"))
-
-        stack = widgets.Stack(
-            children=[h_rel, h_abs],
-            selected_index=0,
-            layout=Layout(width="auto")
-        )
-        widgets.jslink((self.dd_scale_mode, "index"), (stack, "selected_index"))
-
-        return [expl, widgets.HBox([self.dd_scale_mode, stack],
-                                  layout=Layout(align_items="center", gap="4px"))]
+    @staticmethod
+    def _make_column(label, options):
+        sel = widgets.SelectMultiple(options=options, rows=6)
+        col = widgets.VBox([widgets.HTML(label), sel])
+        return col, sel

@@ -2,12 +2,12 @@
 # -*- coding: utf-8 -*-
 """
 Project: UbermagGUI
-Path:    src/new_builder.py
+Path:    src/builder.py
 
-Description:
+UbermagInterface:
     Orchestrates construction of the RegionDesigner by composing
     header, viewport, controls, and footer modules into a grid layout.
-    
+
 Author:      Cameron Aidan McEleney < c.mceleney.1@research.gla.ac.uk >
 Created:     12 May 2025
 IDE:         PyCharm
@@ -18,9 +18,13 @@ Version:     0.1.0
 import logging
 from IPython.display import display
 import ipywidgets as widgets
+from contextlib import ContextDecorator
+import dataclasses
+
 
 # Third-party imports
 import micromagneticmodel as mm
+import discretisedfield as df
 
 # Local application imports
 import src.config as cfg
@@ -28,6 +32,7 @@ from src.workspaces.workspace_controller import WorkspaceController
 from src.viewports.viewports_controller import ViewportsController
 from src.outliners.outliner_controller import OutlinerController
 from src.helper_functions import units_to_meter_factors
+from src.config.dataclass_containers import _CoreProperties
 
 __all__ = ["UbermagInterface"]
 
@@ -42,32 +47,27 @@ class UbermagInterface:
             show_borders: bool = True,
     ):
         # 1) configure logging
-        cfg.setup_logging(console_level="INFO")
+        cfg.setup_logging(console_level="WARNING", file_level="INFO")
+        logging.getLogger("Comm").setLevel(logging.WARNING)
         self.logger = logging.getLogger(__name__)
-        self.logger.info("Starting RegionDesigner")
+        self.logger.info("Starting UbermagInterface")
 
         # 2) core micromagnetic system
-        self.system = mm.System(name=system_name)
-
-        # 3) convert user units → SI
-        # Units are only Ubermag property that can't be nicely stored in System
-        # during user's first interactions
-        self.dims = dims
-        self.units = units_to_meter_factors(units)
-        self.cellsize = cellsize
+        self.interface_properties = _CoreProperties(initial_system=mm.System(name=system_name))
 
         # 4) viewport (3D plotting area)
-        self.viewports = ViewportsController()
+        self.viewports = ViewportsController(properties_controller=self.interface_properties)
 
         # 5.1) workspace controller (Geometry + System Init + ...)
         self.workspaces = WorkspaceController(
-            system=self.system,
+            properties_controller=self.interface_properties,
             plot_callback=self.viewports.plot_regions,
-            dims=self.dims,
-            units=self.units
         )
         # 5.2) outliner controller (show regions + ...)
-        self.outliner = OutlinerController(self.workspaces)
+        self.outliner = OutlinerController(
+            properties_controller=self.interface_properties,
+            workspace_controller=self.workspaces
+        )
 
         # 6) status bar
         self.status_bar = self._assemble_status_bar()  # TODO. Turn StatusBar into its own dir. with own controller.
@@ -92,8 +92,8 @@ class UbermagInterface:
         grid = widgets.GridspecLayout(
             n_rows=3, n_columns=2,
             layout=widgets.Layout(
-                min_width='800px',
-                min_height='600px',
+                min_width='600px',
+                min_height='600px', # max_height='800px',
                 gap='4px',
             )
         )
@@ -138,7 +138,9 @@ class UbermagInterface:
             n_rows=2, n_columns=1,
             layout=widgets.Layout(
                 width='100%', height='100%',
-                gap='4px'
+                gap='4px',
+                min_height='0',
+                overflow='auto'
             )
         )
         grid._grid_template_rows = '3fr 7fr'

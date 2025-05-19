@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Project: Ubermag
-Path:    include/Uberwidgets/region_designer_interface/regions/divide.py
+Project: UbermagGUI
+Path:    src/workspaces/initialisation/regions/divide.py
 
 Description:
         DividePanel: base dropdown, scale, Name, Divide button.
+
+Warning:
+    Currently not working/implemented!
     
 Author:      Cameron Aidan McEleney < c.mceleney.1@research.gla.ac.uk >
 Created:     29 Apr 2025

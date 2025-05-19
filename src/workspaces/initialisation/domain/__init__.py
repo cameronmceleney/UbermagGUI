@@ -12,7 +12,7 @@ initialisation/domain/__init__.py
 
 """
 
-from .container_region import DefineDomainRegion
+from .define import DefineDomainRegion
 
 __all__ = [
     "DefineDomainRegion"

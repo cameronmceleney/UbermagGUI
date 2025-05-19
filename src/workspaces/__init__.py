@@ -13,10 +13,4 @@ src/workspaces/__init__.py:
         - interfacing with `builder.py` for its systemwide, global variables
         - setting the layout of each feature
 """
-
-from .initialisation.controllers import GeometryController, SystemInitController
-
-__all__ = [
-    "GeometryController",
-    "SystemInitController"
-]
+from src.workspaces.workspace_controller import WorkspaceController

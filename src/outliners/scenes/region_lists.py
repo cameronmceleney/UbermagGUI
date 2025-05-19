@@ -14,6 +14,7 @@ Version:     0.1.0
 """
 
 # Standard library imports
+import logging
 import ipywidgets as widgets
 from ipywidgets import Layout
 
@@ -23,44 +24,62 @@ from ipywidgets import Layout
 
 __all__ = ["RegionListReadOnly"]
 
+logger = logging.getLogger(__name__)
+
 
 class RegionListReadOnly:
     """
-    Maintains an HTML widget that displays the current main region,
-    its named subregions, the mesh cell count, and initial magnetisation.
+    Maintains a HTML widget that displays:
+      - active mesh name
+      - domain region name
+      - list of subregion names
     """
     def __init__(self):
-        # HTML widget that will show the region tree and properties
         self.widget = widgets.HTML(
             '<i>No domain set.</i>',
             layout=Layout(overflow='auto')
         )
 
-    def update(self, main_region, subregions, mesh=None, init_mag=None):
+    def build(self):
+        return
+
+    def update(self, mesh_name=None, region_name=None, subregions=None):
         """
         Update the HTML content based on the provided state.
+
+        Parameters
+        ----------
+        mesh_name : str | None
+            Name of the active mesh.
+        region_name : str | None
+            Name of the main region.
+        subregions : list[str]
+            Names of the subregions.
         """
-        if main_region is None:
+        # if no region, nothing to show
+        if region_name is None:
             self.widget.value = '<i>No domain set.</i>'
             return
 
-        html = ['<ul><li>main_region']
-        for name in subregions:
-            html.append(f"<ul><li>{name}</li></ul>")
-        html.append('</li></ul>')
+        # map 'main' to 'domain' to be consistent with other panels terminology
+        display_region = 'domain' if region_name == 'main' else region_name
 
-        if mesh is not None:
-            n = getattr(mesh, 'n', None)
-            if n is not None:
-                html.append(f"<p><b>Mesh cells:</b> {n}</p>")
+        # Start building our HTML
+        html_lines = []
+        mesh_display = mesh_name if mesh_name is not None else 'None'
+        html_lines.append(f'<p><b>Mesh:</b> {mesh_display}</p>')
+        html_lines.append(f'<p><b>Region:</b> {display_region}</p>')
 
-        if init_mag is not None:
-            val  = getattr(init_mag, 'value', None)
-            norm = getattr(init_mag, 'norm',  None)
-            html.append(
-                "<p><b>Init mag:</b> "
-                f"value={val}" + (f", norm={norm}" if norm is not None else "")
-                + "</p>"
-            )
+        if subregions:
+            html_lines.append('<ul>')
+            for name in subregions:
+                html_lines.append(f'<li>{name}</li>')
+            html_lines.append('</ul>')
 
-        self.widget.value = ''.join(html)
+        # Rendering
+        self.widget.value = ''.join(html_lines)
+
+        logger.success(
+            "RegionListReadOnly.update: displayed mesh=%r, region=%r, subregions=%r",
+            mesh_name, display_region, subregions
+        )
