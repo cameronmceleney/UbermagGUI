@@ -18,20 +18,15 @@ Version:     0.1.0
 import logging
 from IPython.display import display
 import ipywidgets as widgets
-from contextlib import ContextDecorator
-import dataclasses
-
 
 # Third-party imports
 import micromagneticmodel as mm
-import discretisedfield as df
 
 # Local application imports
 import src.config as cfg
 from src.workspaces.workspace_controller import WorkspaceController
 from src.viewports.viewports_controller import ViewportsController
 from src.outliners.outliner_controller import OutlinerController
-from src.helper_functions import units_to_meter_factors
 from src.config.dataclass_containers import _CoreProperties
 
 __all__ = ["UbermagInterface"]

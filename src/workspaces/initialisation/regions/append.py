@@ -9,12 +9,17 @@ AppendRegionToExisting:
 """
 # Standard library imports
 import logging
+
 import ipywidgets as widgets
+from typing import List
 
 # Third-party imports
-from src.workspaces.initialisation.panels.region_utils import create_scaled_region_from_base_region
 
 # Local application imports
+from src.config.type_aliases import _AXIS_INDICES
+from src.workspaces.initialisation.panels.base import _PanelBase
+from src.workspaces.initialisation.panels.xyz_inputs import ThreeCoordinateInputs
+from src.workspaces.initialisation.panels.region_utils import create_scaled_region_from_base_region
 
 
 __all__ = ["AppendRegionUsingBase"]
@@ -22,274 +27,233 @@ __all__ = ["AppendRegionUsingBase"]
 logger = logging.getLogger(__name__)
 
 
-class AppendRegionUsingBase:
+def _labeled_row(label: str, widget: widgets.Widget) -> widgets.HBox:
+    """Small helper: puts a text label and a widget into a right‐justified row."""
+    return widgets.HBox(
+        [widgets.HTML(value=f"{label}"), widget],
+        layout=widgets.Layout(
+            align_items="center",
+            justify_content="flex-end",
+            gap="4px",
+        ),
+    )
+
+
+class AppendRegionUsingBase(_PanelBase):
+    """
+    A panel that lets you append a new Region by extruding off an existing one.
+
+    Attributes
+    ----------
+    new_region : widgets.Text
+        A text input for the user to name the new region.
+
+    select_base_region : widgets.Dropdown
+        Dropdown of existing region names from which to append.
+
+    select_axis : widgets.ToggleButtons
+        Axis along which to extrude ('x', 'y', or 'z').
+
+    select_base_face : widgets.ToggleButtons
+        Whether to append on the ‘min’ or ‘max’ face.
+
+    select_scaling_mode : widgets.Dropdown
+        Toggle between 'relative' (in cells) or 'absolute' (in distance).
+
+    scaling_amount : widgets.FloatText
+        Amount to scale by (cells or absolute units).
+
+    btn_append : widgets.Button
+        Button to trigger append action.
+    """
+    # Placeholders for widgets.
+    new_region: widgets.Text
+    select_base_region: widgets.Dropdown
+    select_axis: widgets.ToggleButtons
+    select_base_face: widgets.ToggleButtons
+    select_scaling_mode: widgets.Dropdown
+    scaling_amount: widgets.FloatText
+    btn_append: widgets.Button
+    
     def __init__(self):
-        # callback to WorkspaceController.add_subregion(name,region)
-        self._state_cb   = None
-        # will be set in build()
-        self._sys_props   = None
+        super().__init__()
 
-        # placeholders for widgets
-        self.text_region_name = None
-        self.dd_base = None
-        self.tb_axis = None
-        self.tb_side = None
-        self.dd_scale_mode = None
-        self.ftext_scale_amount = None
-        self.btn_append = None
-
-    def set_state_callback(self, cb):
-        """
-        Register the callback that accepts (name:str, region:df.Region).
-        """
-        self._state_cb = cb
-        # if the button already exists, re-wire it
-        if self._state_cb and getattr(self, "btn_append", None):
-            self.btn_append.on_click(self._on_append)
-
-    def build(self, context):
-        """
-        Build and return the UI for appending a subregion.
-        Capture controls_panel so we can read dims/units and existing subregions.
-        """
-        self._sys_props = context
-        # Dynamically collect children
-        append_panel = widgets.VBox(
-            layout=widgets.Layout(
-                width='100%',
-                height='100%',
-                overflow='hidden',
-                padding="4px"
-            ),
+    def _assemble_panel(self, children: List[widgets.Widget]) -> None:
+        
+        # Explainer
+        children.append(
+            widgets.HTML("<b>Append a new subregion</b>")
         )
-        panel_children = []
-
-        # 1) Explanation HTML about purpose of panel
-        html_explainer_region = widgets.HTML(
-            value="Generate a new region by appending to an existing region.",
-            layout=widgets.Layout(
-                width='auto',
-            )
+        children.append(
+            widgets.HTML("Generate a new region by appending to an existing one.")
         )
-        panel_children.append(html_explainer_region)
-
-        html_region_name = widgets.HTML(
-            value="New region",
+        
+        # Obtain name of base Region via DropDown - I think it's cleaner than MultipleSelect
+        self.new_region = widgets.Text(
+            placeholder="name", layout=widgets.Layout(width="40%")
         )
-        self.text_region_name = widgets.Text(
-            placeholder="name",
-            layout=widgets.Layout(width='40%'),
+        children.append(
+            _labeled_row("New region", self.new_region)
         )
-        hbox_region_name = widgets.HBox(
-            children=[html_region_name, self.text_region_name],
-            layout=widgets.Layout(
-                align_items='center',
-                align_content='center',
-                justify_content='flex-end',
-            )
-        )
-        panel_children.append(hbox_region_name)
-
-        html_base_name = widgets.HTML(
-            value="Base region",
-        )
-        bases = list(self._sys_props.regions.keys())
-        self.dd_base = widgets.Dropdown(
-            options=bases,
+        
+        self.select_base_region = widgets.Dropdown(
+            options=list(self._sys_props.regions.keys()),
             layout=widgets.Layout(width="40%")
         )
-        hbox_dd_base = widgets.HBox(
-            children=[html_base_name, self.dd_base],
-            layout=widgets.Layout(
-                align_items='center',
-                align_content='center',
-                justify_content='flex-end',
-            )
+        children.append(
+            _labeled_row("Base region", self.select_base_region)
         )
-        panel_children.append(hbox_dd_base)
-
-        ####
-        html_orientation_explainer = widgets.HTML(
-            value=(
-                "To set the orientation of the generated region provide: "
-            ),
-            layout=widgets.Layout(overflow_y="visible", width="auto")
+        
+        # From base-region choose: axis, and axis direction, to append along
+        children.append(
+            widgets.HTML("To set the orientation of the generated region provide:",
+                         layout=widgets.Layout(overflow_y="visible"))
         )
-        panel_children.append(html_orientation_explainer)
-
-        # 2) Axis selector (x, y or z)
-        html_axis = widgets.HTML(
-            value="Cartesian axis ",
-        )
-        self.tb_axis = widgets.ToggleButtons(
+        
+        self.select_axis = widgets.ToggleButtons(
             options=[("x", "x"), ("y", "y"), ("z", "z")],
-            style={"button_width": "auto"},
+            style={"button_width": "auto"}
+        )
+        children.append(
+            _labeled_row("axis", self.select_axis)
         )
 
-        hbox_axis = widgets.HBox(
-            children=[html_axis, self.tb_axis],
-            layout=widgets.Layout(
-                align_content='stretch',
-                justify_content='flex-end',
-            )
-        )
-        panel_children.append(hbox_axis)
-
-        # 3) Side selector (positive or negative face)
-        html_side = widgets.HTML(
-            value="face aligned along "
-        )
-
-        self.tb_side = widgets.ToggleButtons(
+        self.select_base_face = widgets.ToggleButtons(
             options=[("+ve", "max"), ("-ve", "min")],
             style={"button_width": "auto"}
         )
 
-        hbox_side = widgets.HBox(
-            children=[html_side, self.tb_side],
-            layout=widgets.Layout(
-                align_content='stretch',
-                justify_content='flex-end'
-            )
+        children.append(
+            _labeled_row("direction", self.select_base_face)
         )
-        panel_children.append(hbox_side)
+        
+        # Scaling controls
+        children.extend(self._make_scaling_controls())
 
-        # 4) Explain how scaling works to user
-        self._make_scaling_controls(panel_children)
-
-        # 5) Append button handling already created in __init__; just need to create button for signalling
+        # Append button
         self.btn_append = widgets.Button(
-            description='Append region',
-            layout=widgets.Layout(width='auto'),
-            style={'button_width': 'auto'}
+            description="Append region",
+            layout=widgets.Layout(width="auto"),
+            style = {'button_width': 'auto'}
         )
+        if self._ctrl_cb:
+            self.btn_append.on_click(self._on_append)
 
-        # always wire the click -> our handler; callback stored in self._state_cb
-        self.btn_append.on_click(self._on_append)
-
-        btn_box = widgets.HBox(
-            [self.btn_append],
-            layout=widgets.Layout(justify_content='center', width='100%')
+        children.append(
+            widgets.HBox([self.btn_append], layout=widgets.Layout(justify_content="center"))
         )
-        panel_children.append(btn_box)
-
-        append_panel.children = tuple(panel_children)
-        return append_panel
-
-    def _on_append(self, _):
-        """
-        When user clicks 'Append':
-          1. convert inputs to SI
-          2. slice & scale slab
-          3. register new region via state callback
-          4. redraw via plot callback
-        """
-        region_name = self.text_region_name.value.strip()
-        if not region_name or region_name is None:
-            self.btn_append.button_style = 'danger'
-            logging.error('Region name either not provided, or None.', stack_info=True)
-            return
-
-        # gather inputs
-        base_key = self.dd_base.value
-        axis = self.tb_axis.value
-        side = self.tb_side.value
-        scale_mode = self.dd_scale_mode.value
-        scale_amount = self.ftext_scale_amount.value
-
-        # lookup parent region
-        parent = (
-            self._sys_props.main_region
-            if base_key == "main"
-            else self._sys_props.regions.get(base_key)
-        )
-        if parent is None:
-            self.btn_append.button_style = "danger"
-            logging.error('Parent region, via self._controller, is None.', stack_info=True)
-            return
-
-        # compute new Region (all SI internally)
-        new_region = create_scaled_region_from_base_region(
-            base_region=parent,
-            scale_amount=scale_amount,
-            cell=self._sys_props.cell,
-            reference_side=side,
-            scale_along_axis=axis,
-            is_scale_absolute=(scale_mode == "absolute")
-        )
-
-        # notify the workspace controller
-        if self._state_cb:
-            self._state_cb(region_name, new_region)
-
-    def _make_scaling_controls(self, panel_children: list) -> None:
-
+        
+    def _make_scaling_controls(self) -> List[widgets.Widget]:
+        
+        out: List[widgets.Widget] = []
         # Explain to the user how the scaling works
-        html_scale_explainer = widgets.HTML(
-            value=(
-                f"Define how the new region will be scaled. "
-            ),
-            layout=widgets.Layout(overflow_y="visible", width="auto")
+        out.append(
+            widgets.HTML("Define how the new region will be scaled:",
+                         layout=widgets.Layout(overflow_y="visible", width="auto"))
         )
-        panel_children.append(html_scale_explainer)
 
-        # scale_mode_options must be compatible with helper_functions!
+        # scale_mode_options must be compatible with region_utils/create_scaled_region_from_base_region.py
         scale_mode_options = [("Relative", "relative"), ("Absolute", "absolute")]
         max_label_length = max(len(label) for label, _ in scale_mode_options)
-        dd_width = f"{max_label_length*1.5 + 2}ch"
-        self.dd_scale_mode = widgets.Dropdown(
+        self.select_scaling_mode = widgets.Dropdown(
             options=scale_mode_options,
-            value='relative',
-            layout=widgets.Layout(width=dd_width)
+            value="relative",
+            layout=widgets.Layout(width=f"{max_label_length*1.5 + 2}ch")
         )
 
-        # 3) FloatText for the amount (shared by both modes)
-        self.ftext_scale_amount = widgets.FloatText(
+        # FloatText for the amount (shared by both modes)
+        self.scaling_amount = widgets.FloatText(
             placeholder=1,
             layout=widgets.Layout(width="4rem")  # wide enough for “10000”
         )
 
-        # 4) Build the mode‐specific HBoxes that Stack will rotate through
-        axis_map = {"x": 0, "y": 1, "z": 2}
-        ax = axis_map[self.tb_axis.value]
+        # Build the scaling_mode specific HBoxes that Stack will rotate through to inform user
+        ax = _AXIS_INDICES[self.select_axis.value]
 
-        # 4a) Relative (unit‐cells) box
-        html_rel = widgets.HTMLMath(
+        scaling_info_rel = widgets.HTMLMath(
             value=(
                 r"unit cells where<br>"
-                rf"\(\Delta d_{{{self.tb_axis.value}}} = {self._sys_props.cell[ax]}\)"
+                rf"\(\Delta d_{{{self.select_axis.value}}} = {self._sys_props.cell[ax]}\)"
                 f" {self._sys_props.units[ax]}"
             ),
             layout=widgets.Layout(width="auto", overflow_x='visible')
         )
-        hbox_rel = widgets.HBox(
-            [self.ftext_scale_amount, html_rel],
-            layout=widgets.Layout(align_items="center", gap="4px")
-        )
 
-        # 4b) Absolute (distance) box
-        html_abs = widgets.HTMLMath(
+        scaling_info_abs = widgets.HTMLMath(
             value=f"{self._sys_props.units[ax]}",
             layout=widgets.Layout(width="auto")
         )
+        
+        # Use same FloatText input in both to minimise number of input widget we're juggling
+        hbox_rel = widgets.HBox(
+            [self.scaling_amount, scaling_info_rel],
+            layout=widgets.Layout(align_items="center", gap="4px")
+        )
         hbox_abs = widgets.HBox(
-            [self.ftext_scale_amount, html_abs],
+            [self.scaling_amount, scaling_info_abs],
             layout=widgets.Layout(align_items="center", gap="4px")
         )
 
-        # 5) Stack them and hook up the dropdown
+        # Stack and hook up the dropdown with the info boxes
         stack_length_scaling = widgets.Stack(
             children=[hbox_rel, hbox_abs],
             selected_index=0,
             layout=widgets.Layout(width="auto")
         )
 
-        widgets.jslink((self.dd_scale_mode, 'index'), (stack_length_scaling, 'selected_index'))
+        widgets.jslink((self.select_scaling_mode, 'index'), (stack_length_scaling, 'selected_index'))
 
         # 6) Finally put dropdown + stack side by side
         hbox_dropdown_plus_stack = widgets.HBox(
-            [self.dd_scale_mode, stack_length_scaling],
+            [self.select_scaling_mode, stack_length_scaling],
             layout=widgets.Layout(width="auto", height="auto", align_items="center", gap="4px")
         )
 
-        panel_children.append(hbox_dropdown_plus_stack)
+        out.append(hbox_dropdown_plus_stack)
+        
+        return out
+
+    def _on_append(self, _) -> None:
+        """Gather inputs, build the new `df.Region`, and call back into the workspace via controller."""
+
+        region_name = self.new_region.value.strip()
+        if not region_name:
+            self.btn_append.button_style = 'danger'
+            logger.error('Region name either not provided, or None.', stack_info=True)
+            return
+
+        # Lookup base region
+        base_key = self.select_base_region.value
+        base_region = (
+            self._sys_props.main_region 
+            if base_key == "main" 
+            else self._sys_props.regions.get(base_key))
+        
+        if base_region is None:
+            self.btn_append.button_style = "danger"
+            logger.error("No base region found")
+            return
+
+        # compute new Region (all SI internally)
+        new_region = create_scaled_region_from_base_region(
+            base_region=base_region,
+            scale_amount=self.scaling_amount.value,
+            cell=self._sys_props.cell,
+            reference_side=self.select_base_face.value,
+            scale_along_axis=self.select_axis.value,
+            is_scale_absolute=(self.select_scaling_mode.value == "absolute")
+        )
+
+        # Callback into WorkspaceController
+        if self._ctrl_cb:
+            self._ctrl_cb(region_name, new_region)
+
+    def refresh(self, bases: list) -> None:
+        """
+        Called when geometry changes, so we can update our dropdown of base‐regions.
+        """
+        current = self.select_base_region.value
+        opts = list(self._sys_props.regions.keys())
+        self.select_base_region.options = opts
+        if current in opts:
+            self.select_base_region.value = current
