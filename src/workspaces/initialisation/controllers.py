@@ -29,7 +29,7 @@ from __future__ import annotations
 import ipywidgets as widgets
 from IPython.display import display
 import logging
-import typing
+from typing import Any, Optional
 
 # Third-party imports
 import discretisedfield as df
@@ -49,101 +49,141 @@ __all__ = [
 
 
 class HandleFeature:
+    """
+    Parent abstract class for UI features composed of multiple panels.
+
+    Each feature presents:
+        - A ToggleButtons selector for switching panels
+        - A content area that displays the selected panel.
+
+    Each feature is designed to be held by a parent container.
+    """
     def __init__(
             self,
-            properties_controller
+            properties_controller: Any  # TODO. Get futures working for type hinting
     ):
         """
-        Parent abstract class to help with buildings features that controllers will manage.
+        Parameters
+        ---------
+        properties_controller:
+            Live, shared properties for the entire interface.
         """
-        # Live states come from workspace_controller.py inheritance
-        # Live states come from builder.py/UbermagInterface inheritance
-        self._props_controller = properties_controller
+        self._props = properties_controller
+
         # Filled in by build_feature() of each feature controller
-        self.panels = {}
-        self.selector: widgets.ToggleButtons = widgets.ToggleButtons()
-        self.panels_container: widgets.Box = widgets.Box()  # TODO. Get working
-        self.content: widgets.Output = widgets.Output(
-            layout=widgets.Layout(width='100%', height='100%', min_height='0', overflow_x="hidden", overflow_y='auto'))
+        self._panels: dict[str, Any] = {}
+
+        # Backing attributes for widgets
+        self._selector: Optional[widgets.ToggleButtons] = None
+        self._panel_area: Optional[widgets.Box] = None
 
     def build_feature(self, panel_map: dict) -> widgets.GridspecLayout:
         """
-        Build a two-column layout for the given panels:
-            - a ToggleButtons column on the left
-            - a content Output area on the right to host 'features'
+        Build a two-column layout for the feature: [ selector | content ]
 
-        panel_map: mapping from tab‐name to panel‐instance (must support .build(self))
+        Parameters
+        ----------
+        panel_map:
+            Mapping of panel-name (selector) to panel-instance (must support .build(self))
         """
         # Stash for children
-        self.panels = panel_map
-        # Rebuilt toggles and initialise to first tab
-        self.selector = self._build_toggles_with_wiring()
+        self._panels = panel_map
+
+        # Create from properties
+        selector = self.selector
+        content = self.panel_area
 
         # Build feature
-        grid = widgets.GridspecLayout(
+        feature_grid = widgets.GridspecLayout(
             n_rows=1, n_columns=2,
             layout=widgets.Layout(
-                width='100%',
-                height='100%',
+                display='flex',
+                min_height='0',
                 gap='4px',
+                overflow='hidden',
             )
         )
 
         # 1st column follows own Layout, and 2nd column fills remaining space
-        grid._grid_template_columns = f'{self.selector.style.button_width} 1fr'
+        feature_grid._grid_template_columns = f'{selector.style.button_width} 1fr'
 
-        grid[0, 0] = self.selector
-        grid[0, 1] = self.content
+        feature_grid[0, 0] = selector
+        feature_grid[0, 1] = content
 
-        # — render the initially‐selected panel immediately —
-        first = self.selector.value
-        panel = self.panels[first]
-        with self.content:
-            display(panel.build(self._props_controller))
+        self._render_panel(selector.value)
 
-        return grid
+        return feature_grid
 
-    def _build_toggles_with_wiring(self) -> widgets.ToggleButtons:
+    @property
+    def selector(self) -> widgets.ToggleButtons:
         """
         Construct the ToggleButtons used to change between panels of this feature, and setup the
         wiring required by `workspace_controller.py` and other higher-level controllers.
         """
-        names = list(self.panels.keys())
+        if self._selector is None:
+            names = list(self._panels.keys())
 
-        # Guaranteeing widths will be particularly helpful when displaying icons
-        min_width = '10ch' #str(min(max(len(n) for n in names), 8) + 2) + "ch"
+            # Guaranteeing widths will be particularly helpful when displaying icons
+            min_width = '10ch' #str(min(max(len(n) for n in names), 8) + 2) + "ch"
 
-        selector = widgets.ToggleButtons(
-            options=names,
-            tooltips=tuple(names),
-            button_style='',
-            style={
-                'button_width': min_width,
-                'align_content': 'center',
-                'justify_content': 'center'
-            },
-            layout=widgets.Layout(
-                min_width=min_width,
-                width='auto', height='100%',
-                overflow='auto',
-                display='flex',  # required for column-nowrap to take effect
-                flex_flow='column nowrap'
-            ),
-        )
+            self._selector = widgets.ToggleButtons(
+                options=names,
+                tooltips=tuple(names),
+                button_style='',  # greyed out
+                style={
+                    'button_width': min_width,
+                    'align_content': 'center',
+                    'justify_content': 'center'
+                },
+                layout=widgets.Layout(
+                    display='flex',  # required for column-nowrap to take effect
+                    flex_flow='column nowrap',
+                    min_width=min_width, width=min_width,
+                    overflow='hidden',
+                ),
+            )
 
-        selector.observe(self._on_select, names='value')
+            self._selector.observe(self._on_select, names='value')
 
-        selector.value = names[0]
+            if names:
+                self._selector.value = names[0]
 
-        return selector
+        return self._selector
 
-    def _on_select(self, change: dict):
+    @property
+    def panel_area(self) -> widgets.Box:
+        """
+        Host the active panel's built UI.
+
+        Lazily constructed when first accessed.
+        """
+        if self._panel_area is None:
+            self._panel_area: widgets.Box = widgets.Box(
+                layout=widgets.Layout(
+                    display='flex',
+                    flex='1 1 auto',
+                    flex_flow='column nowrap',
+                    width='100%', min_width='0',
+                    min_height='0',
+                    overflow_x="hidden",
+                    overflow_y="auto"
+                )
+            )
+        return self._panel_area
+
+    def _on_select(self, change: dict) -> None:
+        """Handles when ToggleButtons' value changes."""
         if change.get('name') == 'value':
-            panel = self.panels[change['new']]
-            self.content.clear_output()
-            with self.content:
-                # pass the workspace‐controller as context
-                display(panel.build(self._props_controller))
+            self._render_panel(change['new'])
+
+    def _render_panel(self, panel_name: str) -> None:
+        """Clear the active box, and display the chosen panel."""
+        panel_requested = self._panels.get(panel_name).build(self._props)
+
+        if panel_requested is None:
+            return
+
+        self._panel_area.children = (panel_requested,)
 
 
 class GeometryController(HandleFeature):
@@ -261,7 +301,11 @@ class InitialisationController:
         tab = widgets.Tab(
             children=[self.geometry.build(), self.system_init.build()],
             layout=widgets.Layout(
-                width='100%', height='100%'
+                display='flex',
+                flex='1 1 0',
+                width='100%',
+                height='100%',
+                overflow='hidden'
             )
         )
 

@@ -56,7 +56,7 @@ class CreateMesh:
             layout=widgets.Layout(
                 width='auto',
                 height='auto',
-                overflow="auto",
+                overflow="hidden auto",
                 padding="4px"
             ),
         )

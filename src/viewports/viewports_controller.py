@@ -53,11 +53,10 @@ class Viewport3DFeature:
         fig_box = widgets.Box(
             [self.mesh_plot.fig],
             layout=widgets.Layout(
-                # display='flex',
+                display='block',
                 # flex="0 1 auto",
-                # width='auto', height='auto',
                 # align_items='stretch'
-                # overflow="hidden"  # Prevents weird rendering of plot labels if fig-space is too small
+                #overflow="hidden"  # Prevents weird rendering of plot labels if fig-space is too small
             )
         )
         grid[0, 0] = fig_box

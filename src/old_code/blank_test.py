@@ -1,131 +1,74 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-Project: UbermagGUI
-Path:    src/workspaces/initialisation/meshes/select_subregions.py
+# region_utils.py
 
-SelectSubregionsInMesh:
-    UI to include/exclude subregions in a given df.Mesh.
-"""
-import logging
-import ipywidgets as widgets
-from ipywidgets import Layout
-import discretisedfield as df
+from discretisedfield import Region
+from typing import Sequence
 
-logger = logging.getLogger(__name__)
+__all__ = ["create_scaled_region_from_base_region"]
 
-__all__ = ["SelectSubregionsInMesh"]
+# module-level constants
+_AXIS_INDICES = {"x": 0, "y": 1, "z": 2}
+_REF_SIDES = {
+    "positive": ("max", "+ve", "positive"),
+    "negative": ("min", "-ve", "negative"),
+}
+_ROUND_PRECISION = 9
 
+def _make_region(p1: Sequence[float], p2: Sequence[float], template: Region) -> Region:
+    return Region(
+        p1=tuple(round(v, _ROUND_PRECISION) for v in p1),
+        p2=tuple(round(v, _ROUND_PRECISION) for v in p2),
+        dims=template.dims,
+        units=template.units,
+    )
 
-class SelectSubregionsInMesh:
-    def __init__(self):
-        self._mesh_cb = None
-        self._sys_props = None
+def create_scaled_region_from_base_region(
+        base_region: Region,
+        scale_amount: float,
+        cellsize: Sequence[float],
+        reference_side: str = 'max',
+        scale_along_axis: str = 'x',
+        scale_is_absolute: bool = False,
+) -> Region:
+    """
+    See original docstring…
+    """
+    # 1) look up axis
+    try:
+        axis_i = _AXIS_INDICES[scale_along_axis]
+    except KeyError:
+        raise ValueError(f"Invalid axis {scale_along_axis!r}. Choose one of {_AXIS_INDICES}.")
 
-        self.dd_mesh = None
-        self.available = None
-        self.selected = None
-        self.btn_rebuild = None
+    # 2) decide which face
+    ref = reference_side.lower()
+    if ref in _REF_SIDES["positive"]:
+        face = "positive"
+    elif ref in _REF_SIDES["negative"]:
+        face = "negative"
+    else:
+        raise ValueError(f"Invalid reference_side {reference_side!r}")
 
-        self._chosen = []
+    # 3) slice off a one-cell slab
+    smin, smax = list(base_region.pmin), list(base_region.pmax)
+    if face == "positive":
+        smin[axis_i] = base_region.pmax[axis_i]
+        smax[axis_i] = base_region.pmax[axis_i] + cellsize[axis_i]
+    else:
+        smin[axis_i] = base_region.pmin[axis_i] - cellsize[axis_i]
+        smax[axis_i] = base_region.pmin[axis_i]
 
-    def set_state_callback(self, cb):
-        """Register callback to receive the new df.Mesh."""
-        self._mesh_cb = cb
+    slab = _make_region(smin, smax, base_region)
 
-    def build(self, context) -> widgets.VBox:
-        self._sys_props = context
-        logger.debug("SelectSubregionsInMesh.build: constructing UI")
+    # 4) compute scaling factor
+    if scale_is_absolute:
+        factor = round(scale_amount / cellsize[axis_i], _ROUND_PRECISION)
+    else:
+        factor = scale_amount
 
-        panel = widgets.VBox(layout=widgets.Layout(overflow="auto", padding="4px"))
-        children = []
+    factors = [1.0, 1.0, 1.0]
+    factors[axis_i] = factor
 
-        children.append(widgets.HTML("<b>Include/exclude subregions</b>"))
-        children.append(widgets.HTML("Select which defined regions to include:"))
-
-        # mesh dropdown
-        self.dd_mesh = widgets.Dropdown(layout=Layout(width="50%"))
-        self.dd_mesh.observe(self._on_mesh_select, names="value")
-        children.append(widgets.HBox([widgets.HTML("Mesh:"), self.dd_mesh],
-                                     layout=widgets.Layout(justify_content='space-between')))
-
-        # two columns: Available v. Included
-        self._build_selection_boxes(children)
-
-        # rebuild button
-        self.btn_rebuild = widgets.Button(description="Rebuild Mesh", button_style="primary")
-        self.btn_rebuild.on_click(self._on_rebuild)
-        children.append(widgets.HBox([self.btn_rebuild], layout=Layout(justify_content="center")))
-
-        panel.children = tuple(children)
-
-        # initial populate
-        self.refresh()
-        return anel
-
-    def refresh(self, *_):
-        """Refresh mesh dropdown & listboxes from _CoreProperties."""
-        main_mesh = self._sys_props.main_mesh
-        mesh_opts = [] if not main_mesh else [("Main mesh", "main")]
-        logger.debug("SelectSubregionsInMesh.refresh: mesh_opts=%r, regions=%r",
-                     mesh_opts, list(self._sys_props.regions.keys()))
-
-        old = self.dd_mesh.value
-        self.dd_mesh.options = mesh_opts
-        self.dd_mesh.value = old if old in {v for _, v in mesh_opts} else None
-        self.btn_rebuild.disabled = not bool(main_mesh)
-
-        # available vs chosen
-        all_names = list(self._sys_props.regions.keys())
-        self.available.options = [n for n in all_names if n not in self._chosen]
-        self.selected.options = self._chosen
-
-    def _on_mesh_select(self, change):
-        new = change.get("new")
-        logger.debug("SelectSubregionsInMesh._on_mesh_select: %r", new)
-        if new and self._sys_props.main_mesh:
-            self._chosen = list(self._sys_props.main_mesh.subregions.keys())
-        else:
-            self._chosen = []
-        self.refresh()
-
-    def _on_rebuild(self, _):
-        logger.debug("SelectSubregionsInMesh._on_rebuild: chosen=%r", self._chosen)
-        old = self._sys_props.main_mesh
-        if not old:
-            self.btn_rebuild.button_style = "danger"
-            return
-
-        subs = {n: self._sys_props.regions[n] for n in self._chosen}
-        try:
-            new_mesh = df.Mesh(region=old.region,
-                               cell=self._sys_props.cell,
-                               subregions=subs,
-                               bc=getattr(old, "bc", ""))
-        except Exception as e:
-            logger.error("Rebuild failed: %s", e, exc_info=True)
-            self.btn_rebuild.button_style = "danger"
-            return
-
-        self.btn_rebuild.button_style = "success"
-        logger.success("Rebuilt mesh with subregions %r", self._chosen)
-        if self._mesh_cb:
-            self._mesh_cb(new_mesh)
-
-    def _build_selection_boxes(self, children):
-        # Available
-        col_avail, self.available = self._make_column("Available", [])
-        self.available.observe(lambda ch: None, names="value")
-        # Included
-        col_incl, self.selected = self._make_column("Included", [])
-        self.selected.observe(lambda ch: None, names="value")
-
-        arrow = widgets.HTML("<span style='font-size:1.5em;'>&rarr;</span>")
-        children.append(widgets.HBox([col_avail, arrow, col_incl],
-                                     layout=Layout(justify_content='space-between')))
-
-    @staticmethod
-    def _make_column(label, options):
-        sel = widgets.SelectMultiple(options=options, rows=6)
-        col = widgets.VBox([widgets.HTML(label), sel])
-        return col, sel
+    # 5) scale and return
+    scaled = slab.scale(factor=tuple(factors),
+                        reference_point=slab.pmin,
+                        inplace=False)
+    return _make_region(scaled.pmin, scaled.pmax, base_region)

@@ -93,8 +93,9 @@ class UbermagInterface:
             n_rows=3, n_columns=2,
             layout=widgets.Layout(
                 min_width='600px',
-                min_height='600px', # max_height='800px',
+                min_height='0',
                 gap='4px',
+                overflow='hidden'
             )
         )
 
@@ -115,7 +116,7 @@ class UbermagInterface:
             # TODO. Perhaps child should be `self.controller.build_top_menu()`?
             children=[self.viewports.build_selector_for_top_menu(),
                       self.workspaces.build_selector_for_top_menu()],
-            layout=widgets.Layout(justify_content='flex-start', gap='4px')
+            layout=widgets.Layout(justify_content='flex-start', gap='4px', overflow='hidden')
         )
 
         return container
@@ -125,30 +126,38 @@ class UbermagInterface:
         btn_instant = widgets.Button(
             description='Instantiate', layout=widgets.Layout(width='auto')
         )
-        container = widgets.HBox([btn_instant], layout=widgets.Layout(justify_content='flex-end'))
+        container = widgets.HBox([btn_instant],
+                                 layout=widgets.Layout(
+                                     justify_content='flex-end',
+                                     overflow='hidden',
+                                 )
+                                 )
 
         return container
 
-    def _assemble_workspace_and_outliner_column(self) -> widgets.GridspecLayout:
+    def _assemble_workspace_and_outliner_column(self) -> widgets.Box:
         """
         Combine Workspace-controller with Outliner-controller inputs to create a VBox output that the
         interface will display.
+
+        The purpose of this method is to constraint the Children; preventing them from forcing the
+        main interface to shrink/grow. Children are responsible for requesting what space in the
+        interface they require.
         """
-        grid = widgets.GridspecLayout(
+
+        column = widgets.GridspecLayout(
             n_rows=2, n_columns=1,
+            children=[self.outliner.build(), self.workspaces.build()],
             layout=widgets.Layout(
-                width='100%', height='100%',
-                gap='4px',
+                display='flex',
+                flex_flow='column nowrap',
                 min_height='0',
-                overflow='auto'
+                overflow='hidden'
+
             )
         )
-        grid._grid_template_rows = '3fr 7fr'
 
-        grid[0, 0] = self.outliner.build()
-        grid[1, 0] = self.workspaces.build()
-
-        return grid
+        return column
 
 
 def main():

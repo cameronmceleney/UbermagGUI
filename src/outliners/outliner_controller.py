@@ -17,8 +17,6 @@ Version:     0.1.0
 # Standard library imports
 import logging
 import ipywidgets as widgets
-from ipywidgets import Layout
-from IPython.display import display
 
 # Third-party imports
 
@@ -91,15 +89,19 @@ class OutlinerController:
     def build(self) -> widgets.Box:
         """
         Return the Outliner widget to be placed in the interface.
+
+        Defaults to setting this Box as 30% the total height of its parent.
         """
         box = widgets.Box(
             children=[self._list.widget],
             layout=widgets.Layout(
-                widget='100%',
-                height='100%', min_height='0',
-                overflow_y='auto'
+                display='flex',
+                flex='0 0 30%',  # Note! Use of 'fr' here leads to improper scaling. Use percentages
+                min_height='0',
+                overflow='hidden'
             )
         )
+
         return box
 
     def refresh(self):

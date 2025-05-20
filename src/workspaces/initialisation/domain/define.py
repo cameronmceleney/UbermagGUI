@@ -4,18 +4,22 @@
 Project: UbermagGUI
 Path:    src/workspaces/initialisation/domain/define.py
 
-CreateDomain: enter pmin/pmax, initialize the main region.
+DefineDomainRegion:
+    UI to set up the main Region (pmin, pmax, cellsize, units).
+    Inherits all layout + callback wiring from _PanelBase.
 """
 # Standard library imports
 import logging
 import ipywidgets as widgets
+import typing
 
 # Third-party imports
 import discretisedfield as df
 
 # Local application imports
 from src.config.type_aliases import UNIT_FACTORS
-from src.helper_functions import build_widget_input_values_xyz_tuple
+from src.workspaces.initialisation.panels.base import _PanelBase
+from src.workspaces.initialisation.panels.xyz_inputs import ThreeCoordinateInputs
 
 __all__ = [
     "DefineDomainRegion"
@@ -24,60 +28,46 @@ __all__ = [
 logger = logging.getLogger(__name__)
 
 
-class DefineDomainRegion:
+class DefineDomainRegion(_PanelBase):
     def __init__(self):
-        self._state_cb = None
-        self._sys_props = None
+        super().__init__()
 
-        # placeholders for all widgets
-        self.pmin_x = self.pmin_y = self.pmin_z = None
-        self.pmax_x = self.pmax_y = self.pmax_z = None
-        self.cell_x = self.cell_y = self.cell_z   = None
+        # placeholders for widgets whose value we read later
+        self.pmin = ThreeCoordinateInputs(None, None, None)
+        self.pmax = ThreeCoordinateInputs(None, None, None)
+        self.cell = ThreeCoordinateInputs(None, None, None)
 
-        self.units_dd  = None
-        self.btn_define  = None
+        self.units_dd = None
+        self.btn_define = None
         self.btn_reset = None
 
-    def set_state_callback(self, cb):
-        """Register the GeometryController callback."""
-        self._state_cb = cb
+    def _assemble_panel(self, children: typing.List[widgets.Widget]) -> None:
 
-    def build(self, context):
-        """
-        Build and return the UI for initializing the domain,
-        complete with pmin/pmax (3 boxes each), cellsize entry,
-        units dropdown, and Init/Reset buttons.
-        """
-        self._sys_props = context
+        children.append(widgets.HTML("<b>Define domain.</b>"))
 
-        domain_panel = widgets.VBox(
-            layout=widgets.Layout(overflow="auto", padding="4px"),
-        )
-        panel_children = []
-
-        # 1) Explanation
-        html_intro_explainer = widgets.HTMLMath(
+        children.append(widgets.HTML(
             value=(
                 "Create a cuboid domain that encapsulates the entire system. "
                 "First, set the units all dimensions will be expressed in."
-            ),
-            layout=widgets.Layout(overflow_y="visible")
-        )
-        panel_children.append(html_intro_explainer)
+            ), #layout=widgets.Layout(overflow_y="visible")
+        ))
 
-        # 5) units dropdown
-        html_units = widgets.HTML(
-            value='Units'
-        )
+        children.append(self._make_units_dropdown())
+
+        children.extend(self._make_position_and_cell_widgets())
+
+        children.append(self._make_buttons())
+
+    def _make_units_dropdown(self) -> widgets.HBox:
+        html_units = widgets.HTML(value='Units')
+
         self.units_dd = widgets.Dropdown(
             options=UNIT_FACTORS.keys(),
             value=self._sys_props.units[0],
-            layout=widgets.Layout(
-                width="40%",
-            )
+            layout=widgets.Layout(width="40%",)
         )
 
-        hbox_units = widgets.HBox(
+        box = widgets.HBox(
             children=[html_units, self.units_dd],
             layout=widgets.Layout(
                 width='auto',
@@ -87,51 +77,90 @@ class DefineDomainRegion:
                 justify_content='flex-end',
             ),
         )
-        panel_children.append(hbox_units)
 
-        self._position_widgets(panel_children)
+        return box
 
-        self._output_button_widgets(panel_children)
-        if self._state_cb:
-            # call state_cb(region) whenever we define, and state_cb(None) on reset
+    def _make_position_and_cell_widgets(self) -> list[widgets.Widget]:
+
+        out: list[widgets.Widget] = []
+
+        # Might copy & reference Ubermag's df.Region.pmin docstring in the future
+        out.append(widgets.HTML(
+            value="Define the two diagonally-opposite corners of the domain:",
+            layout=widgets.Layout(overflow_y="visible", align_content="stretch", justify_content="flex-start",)
+        ))
+
+        self.pmin = ThreeCoordinateInputs.from_defaults(r"\(\mathbf{p}_1\)", (0, 0, 0))
+        out.append(self.pmin.hbox)
+
+        self.pmax = ThreeCoordinateInputs.from_defaults(r"\(\mathbf{p}_2\)", (1, 1, 1))
+        out.append(self.pmax.hbox)
+
+        out.append(widgets.HTML(
+            value="Then specify the mesh cell‐size:",
+            layout=widgets.Layout(overflow_y="visible",
+                                  align_content="stretch",
+                                  justify_content="flex-start",)
+        ))
+        self.cell = ThreeCoordinateInputs.from_defaults(r"\(\Delta d\)", self._sys_props.cell)
+        out.append(self.cell.hbox)
+
+        return out
+
+    def _make_buttons(self):
+        """Buttons to define and initialise, and reset the domain."""
+
+        self.btn_define = widgets.Button(
+            description="Initialise domain",
+            style={"button_style": "info"},
+        )
+
+        self.btn_reset = widgets.Button(
+            description="Reset domain",
+            style={"button_style": "info"},
+            disabled=True,
+        )
+
+        # always wire the click -> our handler; callback stored in self._ctrl_cb
+        if self._ctrl_cb:
             self.btn_define.on_click(self._on_define)
             self.btn_reset.on_click(self._on_reset)
 
-        domain_panel.children = tuple(panel_children)
-        return domain_panel
+        box = widgets.HBox(
+            [self.btn_define, self.btn_reset],
+            layout=widgets.Layout(
+                width='auto',
+                height='auto',
+                align_items="center",
+                align_content="center",
+                justify_content='space-around'
+            )
+        )
+
+        return box
 
     def _on_define(self, _):
-        """User clicked ‘Initialise Domain’—convert everything to metres, then build region."""
-        # parse all 9 entries
-        pmin_raw = (float(self.pmin_x.value),
-                    float(self.pmin_y.value),
-                    float(self.pmin_z.value))
-        pmax_raw = (float(self.pmax_x.value),
-                    float(self.pmax_y.value),
-                    float(self.pmax_z.value))
-        cell_raw = (float(self.cell_x.value),
-                    float(self.cell_y.value),
-                    float(self.cell_z.value))
+        """User clicked: ‘Initialise Domain’.
+
+        Convert UI inputs to S.I., build ``discretisedfield.Region``, and call controller callback.
+        """
         logger.debug("DefineDomainRegion._on_define called; pmin=%r, pmax=%r, units=%r",
-                     pmin_raw, pmax_raw, self.units_dd.value)
+                     self.pmin.values, self.pmax.values, self.units_dd.value)
 
         # unit → SI factor
         self._sys_props._units = (self.units_dd.value, self.units_dd.value, self.units_dd.value)
-
-        factor = UNIT_FACTORS[self._sys_props._units[0]]
+        user_si_prefix = UNIT_FACTORS[self._sys_props._units[0]]
 
         # convert to SI
-        pmin_si = tuple(v * factor for v in pmin_raw)
-        pmax_si = tuple(v * factor for v in pmax_raw)
-        cell_si = tuple(v * factor for v in cell_raw)
-
-        # propagate globally
-        self._sys_props._cell = cell_si
+        p1 = tuple(v * user_si_prefix for v in self.pmin.values)
+        p2 = tuple(v * user_si_prefix for v in self.pmax.values)
+        cell = tuple(v * user_si_prefix for v in self.cell.values)
+        self._sys_props._cell = cell
 
         try:
             # build the Region (SI coords, tagged with user units)
             region = df.Region(
-                p1=pmin_si, p2=pmax_si,
+                p1=p1, p2=p2,
                 dims=self._sys_props.dims,
                 units=self._sys_props.units
             )
@@ -141,9 +170,9 @@ class DefineDomainRegion:
             self.btn_define.button_style = "danger"
             return
 
-        # 1) update interface state via controllers
-        if self._state_cb:
-            self._state_cb(region)
+        # 1) update interface controller via callback
+        if self._ctrl_cb:
+            self._ctrl_cb(region)
 
         # 3) UI feedback
         self.btn_define.disabled = True
@@ -155,9 +184,9 @@ class DefineDomainRegion:
 
     def _on_reset(self, _):
         """User clicked 'Reset domain': clear and redraw empty."""
-        # clear via state callback
-        if self._state_cb:
-            self._state_cb(None)
+        # clear via controller callback
+        if self._ctrl_cb:
+            self._ctrl_cb(None)
 
         # UI feedback
         self.btn_define.disabled = False
@@ -165,75 +194,8 @@ class DefineDomainRegion:
         self.btn_reset.disabled = True
         self.btn_reset.button_style = 'danger'
 
-    def _position_widgets(self, panel_children):
-
-        # Might copy & reference Ubermag's df.Region.pmin docstring in the future
-        html_domain_explainer = widgets.HTMLMath(
-            value="Define the two diagonally-opposite corners of the domain:",
-            layout=widgets.Layout(overflow_y="visible",
-                                  align_content="stretch",
-                                  justify_content="flex-start",)
-        )
-        panel_children.append(html_domain_explainer)
-
-        # 2) pmin row
-        hbox_pmin = build_widget_input_values_xyz_tuple(r"\(\mathbf{p}_1\)", default=(0, 0, 0))
-        panel_children.append(hbox_pmin)
-        self.pmin_x = hbox_pmin.children[1]
-        self.pmin_y = hbox_pmin.children[2]
-        self.pmin_z = hbox_pmin.children[3]
-
-        # 3) pmax row
-        hbox_pmax = build_widget_input_values_xyz_tuple(r"\(\mathbf{p}_2\)", default=(1, 1, 1))
-        panel_children.append(hbox_pmax)
-        self.pmax_x = hbox_pmax.children[1]
-        self.pmax_y = hbox_pmax.children[2]
-        self.pmax_z = hbox_pmax.children[3]
-
-        html_mesh_explainer = widgets.HTMLMath(
-            value="Then specify the mesh cell‐size:",
-            layout=widgets.Layout(overflow_y="visible",
-                                  align_content="stretch",
-                                  justify_content="flex-start",)
-        )
-        panel_children.append(html_mesh_explainer)
-
-        hbox_cellsize = build_widget_input_values_xyz_tuple(
-            r"\(\Delta d\)", default=self._sys_props.cell
-        )
-        panel_children.append(hbox_cellsize)
-        self.cell_x = hbox_cellsize.children[1]
-        self.cell_y = hbox_cellsize.children[2]
-        self.cell_z = hbox_cellsize.children[3]
-
-    def _output_button_widgets(self, panel_children):
-        """Buttons to define and initialise, and reset the domain."""
-        self.btn_define = widgets.Button(
-            description="Initialise domain",
-            style={"button_width": "auto",
-                   "button_style": "info"},
-        )
-        # always wire the click -> our handler; callback stored in self._state_cb
-        self.btn_define.on_click(self._on_define)
-
-        self.btn_reset = widgets.Button(
-            description="Reset domain",
-            style={"button_width": "auto",
-                   "button_style": "info"},
-            disabled=True,
-        )
-
-        # always wire the click -> our handler; callback stored in self._state_cb
-        self.btn_reset.on_click(self._on_reset)
-
-        hbox_btns = widgets.HBox(
-            [self.btn_define, self.btn_reset],
-            layout=widgets.Layout(
-                width='auto',
-                height='auto',
-                align_items="center",
-                align_content="center",
-                justify_content='space-around'
-            )
-        )
-        panel_children.append(hbox_btns)
+    def refresh(self, *args: typing.Any) -> None:
+        """
+        No dynamic ``ipywidgets.DropDown`` here, so there's nothing to refresh.
+        """
+        pass

@@ -21,7 +21,7 @@ import discretisedfield as df
 # Local application imports
 from src.config.type_aliases import UNIT_FACTORS
 from src.config.dataclass_containers import _CoreProperties
-from src.helper_functions import build_widget_input_values_xyz_tuple
+from src.workspaces.initialisation.panels.xyz_inputs import ThreeCoordinateInputs
 
 __all__ = ["PlaceRegion"]
 
@@ -39,8 +39,8 @@ class PlaceRegion:
         # Widgets (will be re-created each build)
         # widgets will be set in build()
         self.text_name = None
-        self.pmin_x = self.pmin_y = self.pmin_z = None
-        self.pmax_x = self.pmax_y = self.pmax_z = None
+        self.pmin = ThreeCoordinateInputs(None, None, None)
+        self.pmax = ThreeCoordinateInputs(None, None, None)
         self.btn_place = None
 
     def set_state_callback(self, cb):
@@ -59,7 +59,7 @@ class PlaceRegion:
 
         place_panel = widgets.VBox(
             layout=Layout(
-                overflow='auto',
+                overflow='hidden',
                 padding='4px',
 
             )
@@ -86,8 +86,6 @@ class PlaceRegion:
         hbox_region_name = widgets.HBox(
             children=[html_region_name, self.text_name],
             layout=Layout(
-                width='auto',
-                height='auto',
                 align_items='center',
                 align_content='center',
                 justify_content='flex-end',
@@ -117,19 +115,16 @@ class PlaceRegion:
         return place_panel
 
     def _on_place(self, _):
-        """When user clicks 'Place Region'—convert inputs to SI, register, redraw."""
+        """When the user clicks 'Place Region'—convert inputs to SI, register, redraw."""
         name = self.text_name.value.strip()
 
-        pmin_raw = tuple(map(float, (self.pmin_x.value, self.pmin_y.value, self.pmin_z.value)))
-        pmax_raw = tuple(map(float, (self.pmax_x.value, self.pmax_y.value, self.pmax_z.value)))
-
         logger.debug("PlaceRegion._on_place called; name=%r, pmin=%r, pmax=%r",
-                     self.text_name, pmin_raw, pmax_raw)
+                     self.text_name, self.pmin.values, self.pmax.values)
 
         # Convert to SI using controls.units
         factor = UNIT_FACTORS.get(self._sys_props.units[0], 1.0)
-        pmin_si = tuple(v * factor for v in pmin_raw)
-        pmax_si = tuple(v * factor for v in pmax_raw)
+        pmin_si = tuple(v * factor for v in self.pmin.values)
+        pmax_si = tuple(v * factor for v in self.pmax.values)
 
         # Create the new Region (in SI units, tagged with user units)
         region = df.Region(
@@ -156,19 +151,11 @@ class PlaceRegion:
         )
         panel_children.append(html_domain_explainer)
 
-        # 2) pmin row
-        hbox_pmin = build_widget_input_values_xyz_tuple(r"\(\mathbf{p}_1\)", default=(0, 0, 0))
-        panel_children.append(hbox_pmin)
-        self.pmin_x = hbox_pmin.children[1]
-        self.pmin_y = hbox_pmin.children[2]
-        self.pmin_z = hbox_pmin.children[3]
+        self.pmin = ThreeCoordinateInputs.from_defaults(r"\(\mathbf{p}_1\)", (0, 0, 0))
+        panel_children.append(self.pmin.hbox)
 
-        # 3) pmax row
-        hbox_pmax = build_widget_input_values_xyz_tuple(r"\(\mathbf{p}_2\)", default=(1, 1, 1))
-        panel_children.append(hbox_pmax)
-        self.pmax_x = hbox_pmax.children[1]
-        self.pmax_y = hbox_pmax.children[2]
-        self.pmax_z = hbox_pmax.children[3]
+        self.pmax = ThreeCoordinateInputs.from_defaults(r"\(\mathbf{p}_2\)", (1, 1, 1))
+        panel_children.append(self.pmax.hbox)
 
         html_units_explainer = widgets.HTMLMath(
             value=f"(Units: {self._sys_props.units[0]})",

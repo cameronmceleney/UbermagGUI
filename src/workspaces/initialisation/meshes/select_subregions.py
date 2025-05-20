@@ -55,7 +55,7 @@ class SelectSubregionsInMesh:
             layout=widgets.Layout(
                 width='auto',
                 height='auto',
-                overflow="auto",
+                overflow="hidden",
                 padding="4px"
             ),
         )

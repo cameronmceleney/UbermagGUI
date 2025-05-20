@@ -12,14 +12,20 @@ Created:     01 May 2025
 IDE:         PyCharm
 Version:     0.1.0
 """
+from dataclasses import dataclass
+import ipywidgets as widgets
 import typing
 
 __all__ = [
     "UbermagDimsType",
     "UbermagUnitsType",
     "UbermagCellsizeType",
-    "UNIT_FACTORS"
+    "UNIT_FACTORS",
+    "_AXIS_INDICES"
     ]
+
+_AXIS_INDICES = {"x": 0, "y": 1, "z": 2}
+
 
 UNIT_FACTORS = {'m': 1, 'um': 1e-6, 'nm': 1e-9}
 # -------------------------------------------------------------------

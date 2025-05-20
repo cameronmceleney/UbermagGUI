@@ -71,7 +71,7 @@ class DivideRegion:
                 self.float_scale,
                 self.btn_divide,
             ],
-            layout=Layout(overflow="auto", padding="4px"),
+            layout=Layout(overflow="hidden", padding="4px"),
         )
 
     def _on_divide(self, _):

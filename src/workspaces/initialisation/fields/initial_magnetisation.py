@@ -18,15 +18,16 @@ Version:     0.1.0
 # Standard library imports
 import ipywidgets as widgets
 import logging
-logger = logging.getLogger(__name__)
 
 # Third-party imports
 import discretisedfield as df
 
 # Local application imports
-from src.helper_functions import build_widget_input_values_xyz_tuple
+from src.workspaces.initialisation.panels.xyz_inputs import ThreeCoordinateInputs
 
 __all__ = ["DefineSystemInitialMagnetisation"]
+
+logger = logging.getLogger(__name__)
 
 
 class DefineSystemInitialMagnetisation:
@@ -37,9 +38,7 @@ class DefineSystemInitialMagnetisation:
 
         # widgets
         self.dd_mesh = None
-        self.init_mag_x = None
-        self.init_mag_y = None
-        self.init_mag_z = None
+        self.init_mag = ThreeCoordinateInputs(None, None, None)
         self.sat_mag = None
         self.chk_mask = None
         self.btn_define = None
@@ -58,7 +57,7 @@ class DefineSystemInitialMagnetisation:
             layout=widgets.Layout(
                 width='auto',
                 height='auto',
-                overflow="auto",
+                overflow="hidden",
                 padding="4px"
             ),
         )
@@ -187,16 +186,13 @@ class DefineSystemInitialMagnetisation:
             self.btn_define.button_style = "danger"
             return
 
-        vec = (
-            float(self.init_mag_x.value),
-            float(self.init_mag_y.value),
-            float(self.init_mag_z.value)
-        )
         sat_mag = float(self.sat_mag.value)
         mask = bool(self.chk_mask.value)
-        logger.debug("DefineSystemInitialMagnetisation._on_define: vec=%r, sat=%r, mask=%r", vec, sat_mag, mask)
+        logger.debug("DefineSystemInitialMagnetisation._on_define: vec=%r, sat=%r, mask=%r",
+                     self.init_mag.values, sat_mag, mask)
+
         try:
-            field = df.Field(mesh=mesh, value=vec, norm=sat_mag, valid=mask, nvdim=3,)
+            field = df.Field(mesh=mesh, value=self.init_mag.values, norm=sat_mag, valid=mask, nvdim=3,)
         except Exception as e:
             logger.error("Failed to build initial Field: %s", e, exc_info=True)
             self.btn_define.button_style = "danger"
@@ -223,10 +219,5 @@ class DefineSystemInitialMagnetisation:
         )
         panel_children.append(html_init_mag_explainer)
 
-        # 2) pmin row
-        hbox_init_mag = build_widget_input_values_xyz_tuple(r"\(\mathbf{m}_{0}\)", default=(0, 0, 1))
-        panel_children.append(hbox_init_mag)
-
-        self.init_mag_x = hbox_init_mag.children[1]
-        self.init_mag_y = hbox_init_mag.children[2]
-        self.init_mag_z = hbox_init_mag.children[3]
+        self.init_mag = ThreeCoordinateInputs.from_defaults(r"\(\mathbf{m}_{0}\)", (0, 0, 1))
+        panel_children.append(self.init_mag.hbox)

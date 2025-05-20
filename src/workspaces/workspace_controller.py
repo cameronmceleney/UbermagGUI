@@ -16,9 +16,6 @@ Version:     0.1.0
 # Standard library imports
 import logging
 import ipywidgets as widgets
-from ipywidgets import Layout
-from ipywidgets import Layout
-from IPython.display import display
 import typing
 
 # Third-party imports
@@ -72,7 +69,9 @@ class WorkspaceController:
         self._mesh_listeners: typing.List[typing.Callable[[df.Mesh], None]] = []
         self._init_mag_listeners: typing.List[typing.Callable[[df.Field], None]] = []
 
-        self.workspaces = {
+        self._has_built_once = False
+
+        self.workspace_features = {
             'Initialisation': InitialisationController(
                 properties_controller=self._props_controller,
                 workspace_controller=self,
@@ -84,44 +83,59 @@ class WorkspaceController:
             )
         }
 
-        self.selector = widgets.ToggleButtons(
-            options=list(self.workspaces),
+        self.workspace_selector = widgets.ToggleButtons(
+            options=list(self.workspace_features),
             value='Initialisation',
             description='Workspace:',
-            layout=Layout(width='auto'),
+            layout=widgets.Layout(width='auto', overflow='hidden'),
             style={'button_width': '10ch'}
         )
-        self.selector.observe(self._on_workspace_change, names='value')
+        self.workspace_selector.observe(self._on_workspace_change, names='value')
 
-        self.output = widgets.Output(layout=Layout(
-            width='100%', height='100%', min_height='0', overflow_x='hidden', overflow_y='auto'))
+        self.workspace_container: typing.Optional[widgets.Box] = None
 
     def _on_workspace_change(self, change):
         if change['name'] == 'value':
-            self.render()
+            self._update_container()
 
-    def render(self):
-        """Re‐mount the currently selected workspace into our output area."""
-        ws = self.workspaces[self.selector.value]
-        self.output.clear_output()
-        with self.output:
-            display(ws.build())
+    def _update_container(self):
+        """Internal API for swapping in the new workspace widget."""
+        ws = self.workspace_features[self.workspace_selector.value]
+        # build the new workspace panel
+        ws_panel = ws.build()
+        # replace the sole child of our container
+        self.workspace_container.children = (ws_panel,)
 
-    def build(self) -> widgets.Output:
-        """Return the assembled menu + workspace pane."""
-        # select first tab to get content populated
-        # initialize selection only once
-        if not hasattr(self, '_initialized'):
-            self.selector.value = list(self.workspaces.keys())[0]
-        # render the currently‐selected sub‐workspace into self.output
-        self.render()
+    def build(self) -> widgets.Box:
+        """
+        Public API that constructs a single ``Box`` container for the WorkspaceController.
 
-        return self.output
+        This container is directly injected into the overall ``UbermagInterface`` ``GridspecLayout``.
+        """
+        if not self._has_built_once:
+            # Select initial workspace
+            self.workspace_selector.value = list(self.workspace_features.keys())[0]
+            self._has_built_once = True
+
+            # Hosts dynamic content from Workspace area of interface
+            self.workspace_container = widgets.Box(
+                layout=widgets.Layout(
+                    display='flex',
+                    flex='1 1 0',  # Grow to fill all the remaining space given to the Workspace area
+                    min_height='0',
+                    overflow='hidden'  # No scroll bars; let children handle internal scrolls
+                )
+            )
+
+        # render the sub‐workspace while updating to its default feature + panel selection
+        self._update_container()
+
+        return self.workspace_container
 
     def build_selector_for_top_menu(self):
         """Intentionally separated out the selector bar for the TopMenu UI area"""
         container = widgets.HBox(
-            children=[self.selector],
+            children=[self.workspace_selector],
             layout=widgets.Layout(justify_content='flex-start')
         )
         return container
@@ -133,7 +147,7 @@ class WorkspaceController:
     # — plot proxy —
     def _plot_regions(self, main_region: df.Region, subregions: dict[str, df.Region], show_domain: bool = True):
         """Wired to ViewpointsController.plot_regions"""
-        logger.debug("WorkspaceController._plot_regions: attempting to update Viewports area" )
+        logger.debug("WorkspaceController._plot_regions: attempting to update Viewports area")
         if self._plot_callback:
             self._plot_callback(main_region, subregions, show_domain)
 
@@ -185,8 +199,6 @@ class WorkspaceController:
          - redraw the viewport
          - (if you had an outliner workspace, refresh it here)
         """
-        #for cb in self._geometry_listeners:
-        #    cb(self._props_controller.main_region, self._props_controller.regions)
         self._plot_regions(self._props_controller.main_region, self._props_controller.regions, True)
 
     # ---- system‐init state mutators ----
@@ -197,10 +209,6 @@ class WorkspaceController:
         # notify mesh subscribers
         for cb in self._mesh_listeners:
             cb(mesh)
-
-        # notify geometry controller to sync base-mesh options in DropDown widget
-        # if hasattr(self.workspaces, 'refresh_mesh_dropdown'):
-        #    self.system_init_ctrl.refresh_mesh_dropdown()
 
     def register_mesh_listener(self, cb: typing.Callable):
         self._mesh_listeners.append(cb)

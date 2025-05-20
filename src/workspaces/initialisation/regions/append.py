@@ -10,10 +10,9 @@ AppendRegionToExisting:
 # Standard library imports
 import logging
 import ipywidgets as widgets
-from ipywidgets import Layout
 
 # Third-party imports
-from src.helper_functions import create_scaled_region_from_base_region
+from src.workspaces.initialisation.panels.region_utils import create_scaled_region_from_base_region
 
 # Local application imports
 
@@ -59,8 +58,7 @@ class AppendRegionUsingBase:
             layout=widgets.Layout(
                 width='100%',
                 height='100%',
-                overflow_y='auto',
-                overflow_x='hidden',
+                overflow='hidden',
                 padding="4px"
             ),
         )
@@ -80,13 +78,11 @@ class AppendRegionUsingBase:
         )
         self.text_region_name = widgets.Text(
             placeholder="name",
-            layout=Layout(width='40%'),
+            layout=widgets.Layout(width='40%'),
         )
         hbox_region_name = widgets.HBox(
             children=[html_region_name, self.text_region_name],
-            layout=Layout(
-                width='auto',
-                height='auto',
+            layout=widgets.Layout(
                 align_items='center',
                 align_content='center',
                 justify_content='flex-end',
@@ -100,13 +96,11 @@ class AppendRegionUsingBase:
         bases = list(self._sys_props.regions.keys())
         self.dd_base = widgets.Dropdown(
             options=bases,
-            layout=Layout(width="40%")
+            layout=widgets.Layout(width="40%")
         )
         hbox_dd_base = widgets.HBox(
             children=[html_base_name, self.dd_base],
-            layout=Layout(
-                width='auto',
-                height='auto',
+            layout=widgets.Layout(
                 align_items='center',
                 align_content='center',
                 justify_content='flex-end',
@@ -134,9 +128,7 @@ class AppendRegionUsingBase:
 
         hbox_axis = widgets.HBox(
             children=[html_axis, self.tb_axis],
-            layout=Layout(
-                width='auto',
-                height='auto',
+            layout=widgets.Layout(
                 align_content='stretch',
                 justify_content='flex-end',
             )
@@ -155,9 +147,7 @@ class AppendRegionUsingBase:
 
         hbox_side = widgets.HBox(
             children=[html_side, self.tb_side],
-            layout=Layout(
-                width='auto',
-                height='auto',
+            layout=widgets.Layout(
                 align_content='stretch',
                 justify_content='flex-end'
             )
@@ -170,7 +160,7 @@ class AppendRegionUsingBase:
         # 5) Append button handling already created in __init__; just need to create button for signalling
         self.btn_append = widgets.Button(
             description='Append region',
-            layout=Layout(width='auto'),
+            layout=widgets.Layout(width='auto'),
             style={'button_width': 'auto'}
         )
 
@@ -179,7 +169,7 @@ class AppendRegionUsingBase:
 
         btn_box = widgets.HBox(
             [self.btn_append],
-            layout=Layout(justify_content='center', width='100%')
+            layout=widgets.Layout(justify_content='center', width='100%')
         )
         panel_children.append(btn_box)
 
@@ -222,10 +212,10 @@ class AppendRegionUsingBase:
         new_region = create_scaled_region_from_base_region(
             base_region=parent,
             scale_amount=scale_amount,
-            cellsize=self._sys_props.cell,
+            cell=self._sys_props.cell,
             reference_side=side,
             scale_along_axis=axis,
-            scale_is_absolute=(scale_mode == "absolute")
+            is_scale_absolute=(scale_mode == "absolute")
         )
 
         # notify the workspace controller
@@ -250,13 +240,13 @@ class AppendRegionUsingBase:
         self.dd_scale_mode = widgets.Dropdown(
             options=scale_mode_options,
             value='relative',
-            layout=Layout(width=dd_width)
+            layout=widgets.Layout(width=dd_width)
         )
 
         # 3) FloatText for the amount (shared by both modes)
         self.ftext_scale_amount = widgets.FloatText(
             placeholder=1,
-            layout=Layout(width="4rem")  # wide enough for “10000”
+            layout=widgets.Layout(width="4rem")  # wide enough for “10000”
         )
 
         # 4) Build the mode‐specific HBoxes that Stack will rotate through
@@ -270,28 +260,28 @@ class AppendRegionUsingBase:
                 rf"\(\Delta d_{{{self.tb_axis.value}}} = {self._sys_props.cell[ax]}\)"
                 f" {self._sys_props.units[ax]}"
             ),
-            layout=Layout(width="auto", overflow_x='visible')
+            layout=widgets.Layout(width="auto", overflow_x='visible')
         )
         hbox_rel = widgets.HBox(
             [self.ftext_scale_amount, html_rel],
-            layout=Layout(align_items="center", gap="4px")
+            layout=widgets.Layout(align_items="center", gap="4px")
         )
 
         # 4b) Absolute (distance) box
         html_abs = widgets.HTMLMath(
             value=f"{self._sys_props.units[ax]}",
-            layout=Layout(width="auto")
+            layout=widgets.Layout(width="auto")
         )
         hbox_abs = widgets.HBox(
             [self.ftext_scale_amount, html_abs],
-            layout=Layout(align_items="center", gap="4px")
+            layout=widgets.Layout(align_items="center", gap="4px")
         )
 
         # 5) Stack them and hook up the dropdown
         stack_length_scaling = widgets.Stack(
             children=[hbox_rel, hbox_abs],
             selected_index=0,
-            layout=Layout(width="auto")
+            layout=widgets.Layout(width="auto")
         )
 
         widgets.jslink((self.dd_scale_mode, 'index'), (stack_length_scaling, 'selected_index'))
@@ -299,7 +289,7 @@ class AppendRegionUsingBase:
         # 6) Finally put dropdown + stack side by side
         hbox_dropdown_plus_stack = widgets.HBox(
             [self.dd_scale_mode, stack_length_scaling],
-            layout=Layout(width="auto", height="auto", align_items="center", gap="4px")
+            layout=widgets.Layout(width="auto", height="auto", align_items="center", gap="4px")
         )
 
         panel_children.append(hbox_dropdown_plus_stack)

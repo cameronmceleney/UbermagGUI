@@ -37,7 +37,7 @@ class RegionListReadOnly:
     def __init__(self):
         self.widget = widgets.HTML(
             '<i>No domain set.</i>',
-            layout=Layout(overflow='auto')
+            layout=Layout(overflow='hidden auto')
         )
 
     def build(self):
