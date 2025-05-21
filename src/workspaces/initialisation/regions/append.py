@@ -17,9 +17,7 @@ from typing import List
 
 # Local application imports
 from src.config.type_aliases import _AXIS_INDICES
-from src.workspaces.initialisation.panels.base import _PanelBase
-from src.workspaces.initialisation.panels.xyz_inputs import ThreeCoordinateInputs
-from src.workspaces.initialisation.panels.region_utils import create_scaled_region_from_base_region
+from src.workspaces.initialisation.panels import _PanelBase, create_scaled_region_from_base_region
 
 
 __all__ = ["AppendRegionUsingBase"]

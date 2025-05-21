@@ -178,10 +178,17 @@ class HandleFeature:
 
     def _render_panel(self, panel_name: str) -> None:
         """Clear the active box, and display the chosen panel."""
-        panel_requested = self._panels.get(panel_name).build(self._props)
+        feature = self._panels.get(panel_name)
+        panel_requested = feature.build(self._props)
 
         if panel_requested is None:
             return
+
+        if hasattr(feature, "refresh"):
+            try:
+                feature.refresh()
+            except Exception:
+                logger.exception(f"HandleFeature._render_panel: {feature!r}.refresh() failed")
 
         self._panel_area.children = (panel_requested,)
 
@@ -190,6 +197,7 @@ class GeometryController(HandleFeature):
     def __init__(
             self,
             properties_controller,
+            workspace_controller,
             domain_callback,
             add_callback,
             remove_callback,
@@ -208,6 +216,11 @@ class GeometryController(HandleFeature):
         self.panels['Place'].set_state_callback(add_callback)
         self.panels['Append'].set_state_callback(add_callback)
         self.panels['Remove'].set_state_callback(remove_callback)
+
+        # Dependents that need to monitor changes in regions.
+        workspace_controller.register_geometry_listener(
+            lambda main, subs: self.panels['Remove'].refresh()
+        )
 
     def build(self) -> widgets.GridspecLayout:
         return self.build_feature(self.panels)
@@ -238,23 +251,19 @@ class SystemInitController(HandleFeature):
         # *** subscribe to geometry/mesh changes so dropdowns stay in sync ***
         # whenever a region is defined or removed:
         workspace_controller.register_geometry_listener(
-            lambda main, subs: self.panels['Mesh'].refresh(
-                list(subs.keys())
-            )
+            lambda main, subs: self.panels['Mesh'].refresh()
         )
 
         # whenever a mesh is built or rebuilt:
         workspace_controller.register_mesh_listener(
-            lambda mesh: (self.panels['Initial fields'].refresh(),
+            lambda mesh, subs: (self.panels['Initial fields'].refresh(),
                           self.panels['Subregions in mesh'].refresh()
                           )
         )
 
         # TODO. Fix the horrid refresh arg.
         workspace_controller.register_mesh_listener(
-            lambda mesh: self.panels['Mesh'].refresh(
-                ['main'] + [n for n in self._props_controller.regions if n != 'main']
-            )
+            lambda mesh: self.panels['Mesh'].refresh()
         )
 
     def build(self) -> widgets.GridspecLayout:
@@ -280,6 +289,7 @@ class InitialisationController:
         # instantiate each feature; wired handled by feature's controller
         self.geometry = GeometryController(
             properties_controller=properties_controller,
+            workspace_controller=workspace_controller,
             domain_callback=domain_callback,
             add_callback=add_callback,
             remove_callback=remove_callback,

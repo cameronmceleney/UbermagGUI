@@ -18,8 +18,7 @@ import discretisedfield as df
 
 # Local application imports
 from src.config.type_aliases import UNIT_FACTORS
-from src.workspaces.initialisation.panels.base import _PanelBase
-from src.workspaces.initialisation.panels.xyz_inputs import ThreeCoordinateInputs
+from src.workspaces.initialisation.panels import _PanelBase, ThreeCoordinateInputs
 
 __all__ = [
     "DefineDomainRegion"
@@ -29,6 +28,42 @@ logger = logging.getLogger(__name__)
 
 
 class DefineDomainRegion(_PanelBase):
+    """
+    A panel that lets you create a new primary region (domain).
+
+    Attributes
+    ----------
+    pmin : "ThreeCoordinateInputs"
+        Bottom corner of the region.
+
+    pmax : "ThreeCoordinateInputs"
+        Upper corner of the region.
+
+    cell : "ThreeCoordinateInputs"
+        Dimensions for the unit cell.
+
+    units_dd : widgets.DropDown
+        User can select their unit-base for all entered values via a
+        Dropdown of S.I. prefixes.
+
+    btn_define : widgets.Button
+        Button to trigger the creation of the `df.Region`.
+
+    btn_reset : widgets.Button
+        Button to trigger the clearing of the ``main_region`` stored in the interface's
+        ``_CoreProperties`` instance.
+
+
+    """
+    # placeholders for widgets whose value we read later
+    pmin: ThreeCoordinateInputs
+    pmax: ThreeCoordinateInputs
+    cell: ThreeCoordinateInputs
+
+    units_dd: widgets.Dropdown
+    btn_define: widgets.Button
+    btn_reset: widgets.Button
+
     def __init__(self):
         super().__init__()
 
@@ -36,10 +71,6 @@ class DefineDomainRegion(_PanelBase):
         self.pmin = ThreeCoordinateInputs(None, None, None)
         self.pmax = ThreeCoordinateInputs(None, None, None)
         self.cell = ThreeCoordinateInputs(None, None, None)
-
-        self.units_dd = None
-        self.btn_define = None
-        self.btn_reset = None
 
     def _assemble_panel(self, children: typing.List[widgets.Widget]) -> None:
 

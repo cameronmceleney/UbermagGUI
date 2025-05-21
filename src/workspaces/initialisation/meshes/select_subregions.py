@@ -16,133 +16,191 @@ Version:     0.1.0
 # Standard library imports
 import logging
 import ipywidgets as widgets
-from ipywidgets import Layout
 
 # Third-party imports
 import discretisedfield as df
 
 # Local application imports
+from src.workspaces.initialisation.panels import _PanelBase, ThreeCoordinateInputs
+
 
 __all__ = ["SelectSubregionsInMesh"]
+
 
 logger = logging.getLogger(__name__)
 
 
-class SelectSubregionsInMesh:
+class SelectSubregionsInMesh(_PanelBase):
+    """
+    User can select to be included as subregions for a target mesh.
+
+    The possible subregions come from a list of all regions saved to the `_CoreProperties.regions`
+    instance.
+
+    Attributes
+    ----------
+    dd_mesh : widgets.Dropdown
+        Select which mesh to assign subregions.
+    init_mag : ThreeCoordinateInputs
+        Normalised magnetisation componets for each Cartesian axis.
+    chk_mask : widgets.Checkbox
+        Boolean check lets the user unlock an additional panel for defining masks.
+    btn_define : widgets.Button
+        Button to push selected subregions to instanced `_CoreProperties.main_mesh`.
+    """
+    dd_mesh: widgets.Dropdown
+    init_mag: ThreeCoordinateInputs
+    chk_mask: widgets.Checkbox
+    btn_define: widgets.Button
+
     def __init__(self):
-        self._mesh_cb = None
-        self._sys_props = None
+        # callback(mesh_field: df.Field) → builder.system.m = mesh_field
+        super().__init__()
 
-        # widgets
-        self.dd_mesh = None
-        self.available = None
-        self.selected = None
-        self.btn_rebuild = None
+    def _assemble_panel(self, children: list[widgets.Widget]) -> None:
 
-        # internal set of currently chosen subregions
-        self._chosen = []
-
-    def set_state_callback(self, cb):
-        """Register callback to receive the new df.Mesh."""
-        self._mesh_cb = cb
-
-    def build(self, context) -> widgets.VBox:
-        """Build the UI for selecting subregions and rebuilding mesh."""
-        self._sys_props = context
-        logger.debug("SelectSubregionsInMesh.build: constructing UI")
-
-        panel = widgets.VBox(
-            layout=widgets.Layout(
-                width='auto',
-                height='auto',
-                overflow="hidden",
-                padding="4px"
-            ),
+        children.append(
+            widgets.HTML("<b>Include/Exclude Subregions</b>")
         )
-        children = []
-
-        children.append(widgets.HTML("<b>Include/exclude subregions</b>"))
-        children.append(widgets.HTML("Select which defined regions to include:"))
-
-        html_base_mesh = widgets.HTML(
-            "For a given base mesh",
-            layout=widgets.Layout(flex='0 0 auto')
+        children.append(
+            widgets.HTML("Select regions to include:")
         )
 
-        # TODO. Currently only accepting main_mesh; need to scale to all possible domain
+        # Select mesh
+        html_mesh = widgets.HTML(
+            "For a given base mesh:",
+            layout=widgets.Layout(flex="0 0 auto")
+        )
         self.dd_mesh = widgets.Dropdown(layout=widgets.Layout(flex="0 0 30%"))
         self.dd_mesh.observe(self._on_mesh_select, names="value")
 
-        hbox_base_mesh = widgets.HBox(
-            children=[html_base_mesh, self.dd_mesh],
+        children.append(widgets.HBox(
+            [html_mesh, self.dd_mesh],
             layout=widgets.Layout(
-                display='flex',
-                width='100%',
-                flex_flow='row wrap',
-                word_break='break-all',
-                align_items='center',
-                gap='4px'
+                display="flex",
+                width="100%",
+                flex_flow="row wrap",
+                word_break="break-all",
+                align_items="center",
+                gap="4px",
             )
-        )
-        children.append(hbox_base_mesh)
+        ))
 
-        # Two SelectMultiple in column-view: Available v. Included regions in mesh
+        # 3) Available ⇆ Included columns
         self._build_selection_boxes(children)
 
-        self.btn_rebuild = widgets.Button(description="Rebuild Mesh", button_style="primary",)
+        # 4) Rebuild button
+        self.btn_rebuild = widgets.Button(
+            description="Rebuild Mesh",
+            button_style="primary"
+        )
         self.btn_rebuild.on_click(self._on_rebuild)
-        children.append(widgets.HBox([self.btn_rebuild], layout=Layout(justify_content="center")))
 
-        panel.children = tuple(children)
+        children.append(widgets.HBox(
+            [self.btn_rebuild],
+            layout=widgets.Layout(justify_content="center")
+        ))
 
-        self.refresh()
+    def refresh(self, *_) -> None:
+        """
+        Refresh the mesh dropdown + the Available/Includ ed lists based on current context.
+        """
+        if self._sys_props is None or self.dd_mesh is None:
+            logger.debug(
+                "SelectSubregionsInMesh.refresh: "
+                "missing dd_mesh or _sys_props, skipping"
+            )
+            return
 
-        return panel
+        has_mesh = bool(self._sys_props.main_mesh)
+
+        # 1) rebuild the mesh dropdown
+        self._refresh_dropdown(
+            self.dd_mesh,
+            self._sys_props.meshes.keys(),
+            labeler=str.title,               # human‐readable
+            default_first=True,              # pick first if old disappeared
+            disable_widget=self.btn_rebuild  # disable “Rebuild” if no mesh
+        )
+
+        # 2) rebuild the two multi‐select lists
+        all_names = set(self._sys_props.regions)
+        chosen    = set(self._chosen)
+        self.available.options = sorted(all_names - chosen)
+        self.selected.options  = sorted(chosen & all_names)
 
     def _on_mesh_select(self, change):
-        """When they pick a mesh, seed ``_chosen`` from its .subregions."""
-        new = change['new']
+        """Seed the chosen list from whatever the current mesh has."""
+        new = change["new"]
         logger.debug("SelectSubregionsInMesh._on_mesh_select: %r", new)
+
         if new and self._sys_props.main_mesh:
-            # grab whatever subregions the mesh currently has
             self._chosen = list(self._sys_props.main_mesh.subregions.keys())
         else:
             self._chosen = []
         self.refresh()
 
-    def refresh(self, *_):
+    def _build_selection_boxes(self, children: list[widgets.Widget]) -> None:
         """
-        Refresh both lists when controls.subregions or controls.mesh changes.
+        Append an explanatory text and an HBox of [ Available | → | Included ].
         """
-        # mesh dropdown
-        if not getattr(self, "_sys_props", None) or self.dd_mesh is None:
-            return
+        children.append(widgets.HTML(
+            "Choose which regions to include as subregions of the mesh. "
+            "Ensure that they are defined appropriately.",
+            layout=widgets.Layout(flex="1 1 auto", min_width="0", overflow="visible")
+        ))
 
-        has_mesh = bool(self._sys_props and self._sys_props.main_mesh)
+        col_avail, self.available = self._make_column("Available", list(self._sys_props.regions))
+        self.available.observe(self._on_add, names="value")
 
-        # TODO. List of domain will be dynamic in the future.
-        # (Re)Set mesh dropdown here, else panel omits current mesh's subregion(s)
-        opts = [] if not has_mesh else [("main", "main")]
-        old = self.dd_mesh.value
-        self.dd_mesh.options = opts
+        col_incl, self.selected = self._make_column("Included", [])
+        self.selected.observe(self._on_remove, names="value")
 
-        if old not in {v for _, v in opts}:
-            self.dd_mesh.value = None
+        arrow = widgets.HTML(
+            "<span style='font-size:1.5em;'>&rarr;</span>",
+            layout=widgets.Layout(flex="0 0 auto", gap="4px")
+        )
 
-        self.btn_rebuild.disabled = not has_mesh
+        children.append(widgets.HBox(
+            [col_avail, arrow, col_incl],
+            layout=widgets.Layout(
+                display="flex",
+                width="100%",
+                align_items="center",
+                justify_content="space-between"
+            )
+        ))
 
-        # 3) lists: available = defined minus chosen; included = chosen
-        all_names = list(self._sys_props.regions.keys())
-        self.available.options = [n for n in all_names if n not in self._chosen]
-        # selected = exactly the mesh’s current chosen
-        self.selected.options = self._chosen
+    @staticmethod
+    def _make_column(label_text: str, options) -> tuple[widgets.VBox, widgets.SelectMultiple]:
+        """
+        Build a labeled SelectMultiple in a VBox, return (vbox, select_widget).
+        """
+        label = widgets.HTML(label_text)
+        sel = widgets.SelectMultiple(
+            options=options,
+            rows=6,
+            layout=widgets.Layout(flex="1 1 auto", min_width="0", width="100%")
+        )
+        col = widgets.VBox(
+            [label, sel],
+            layout=widgets.Layout(
+                display="flex",
+                flex="0 1 45%",
+                min_width="0",
+                align_items="center",
+                align_content="center",
+                justify_content="center"
+            )
+        )
+        return col, sel
 
     def _on_add(self, change):
         """Move selections from available → selected."""
         for name in change["new"]:
             if name not in self._chosen:
                 self._chosen.append(name)
-        # clear selection and refresh
+
         self.available.value = ()
         self.refresh()
 
@@ -179,81 +237,5 @@ class SelectSubregionsInMesh:
         self.btn_rebuild.button_style = "success"
         logger.success(f"Rebuilt mesh '{self.dd_mesh.value}' with subregions: {self._chosen}")
 
-        if self._mesh_cb:
-            self._mesh_cb(new_mesh)
-
-    def _build_selection_boxes(self, panel_children):
-        """
-        Append to panel_children an HBox of
-        [ Available-column | → | Included-column ] where each column
-        is a VBox(label over SelectMultiple).
-        """
-        html_selection_process = widgets.HTML(
-            value=", choose which regions to include as the mesh's subregions. "
-                  "It's the responsibility of the user to ensure that the subregions are "
-                  "defined appropriately. ",
-            layout=widgets.Layout(
-                flex='1 1 auto',
-                min_width='0',
-                overflow='visible'
-            )
-        )
-        panel_children.append(html_selection_process)
-
-        # Available column
-        col_avail, self.available = self._make_column(
-            "Available", list(self._sys_props.regions)
-        )
-        self.available.observe(self._on_add, names="value")
-
-        # Included column
-        col_incl, self.selected = self._make_column(
-            "Included", []
-        )
-        self.selected.observe(self._on_remove, names="value")
-
-        # Arrow
-        arrow = widgets.HTML(
-            "<span style='font-size:1.5em;'>&rarr;</span>",
-            layout=Layout(
-                flex='0 0 auto',
-                gap='5%'
-            )
-        )
-
-        # One row to hold them
-        row = widgets.HBox(
-            children=[col_avail, arrow, col_incl],
-            layout=Layout(
-                display='flex',
-                width='100%',
-                align_items='center',
-                justify_content='space-between',
-            )
-        )
-        panel_children.append(row)
-
-    @staticmethod
-    def _make_column(label_text: str, options):
-        """Return (column_vbox, select_widget)."""
-        label = widgets.HTML(label_text)
-        sel = widgets.SelectMultiple(
-            options=options,
-            rows=6,
-            layout=Layout(
-                flex='1 1 auto',
-                min_width='0',
-                width='100%',
-            )
-        )
-        col = widgets.VBox(
-            children=[label, sel],
-            layout=Layout(
-                display='flex',
-                flex='0 1 45%',
-                min_width='0',
-                align_items='center', align_content='center',
-                justify_content='center'
-            )
-        )
-        return col, sel
+        if self._ctrl_cb:
+            self._ctrl_cb(new_mesh)

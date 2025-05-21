@@ -8,9 +8,8 @@ Description:
 
     CreateMesh: define your df.Mesh for the micromagnetic System.
 
-    The user selects a region (default `main_region`), boundary conditions
-    for each axis, and clicks "Build Mesh". On success, a Mesh object
-    is created and passed to ControlsPanel via the registered callback.
+    Inherits layout + callback wiring from _PanelBase. Its typical caller will be
+    `InitialisationController`.
     
 Author:      Cameron Aidan McEleney < c.mceleney.1@research.gla.ac.uk >
 Created:     04 May 2025
@@ -21,276 +20,230 @@ Version:     0.1.0
 # Standard library imports
 import ipywidgets as widgets
 import logging
-logger = logging.getLogger(__name__)
+from typing import Any, Sequence
 
 # Third-party imports
 import discretisedfield as df
 
 # Local application imports
+from src.workspaces.initialisation.panels import _PanelBase
 
 __all__ = ["CreateMesh"]
 
+logger = logging.getLogger(__name__)
 
-class CreateMesh:
+
+class CreateMesh(_PanelBase):
+    """
+    Panel to build a mesh from an existing Region.
+
+    Attributes
+    ----------
+    dd_base_region : widgets.Dropdown
+        Select which region to mesh.
+    dd_bc_type : widgets.Dropdown
+        Boundary‐condition type.
+    ckk_bc_x, ckk_bc_y, ckk_bc_z : widgets.Checkbox
+        Choose periodic axes for "periodic" BC.
+    btn_build_mesh : widgets.Button
+        Trigger mesh construction.
+    """
+    dd_base_region: widgets.Dropdown
+    dd_bc_type: widgets.Dropdown
+    ckk_bc_x: widgets.Checkbox
+    ckk_bc_y: widgets.Checkbox
+    ckk_bc_z: widgets.Checkbox
+    btn_build_mesh: widgets.Button
+
     def __init__(self):
-        # callback to ControlsPanel: receives a Mesh instance
-        self._mesh_cb = None
-        self._sys_props = None
+        super().__init__()
 
-        # widgets
-        self.dd_base_region = None
-        self.dd_bc_type = None
-        self.ckk_bc_x = self.ckk_bc_y = self.ckk_bc_z = None
-        self.btn_build_mesh = None
-
-    def set_state_callback(self, cb):
-        """Register ControlsPanel.set_mesh (or similar)."""
-        self._mesh_cb = cb
-
-    def build(self, context) -> widgets.VBox:
-        """Build and return the UI for mesh creation."""
-        self._sys_props = context
-        logger.debug("CreateMesh.build: constructing UI")
-
-        panel = widgets.VBox(
-            layout=widgets.Layout(
-                width='auto',
-                height='auto',
-                overflow="hidden auto",
-                padding="4px"
-            ),
-        )
-        children = []
-
+    def _assemble_panel(self, children: list[widgets.Widget]) -> None:
+        # Title + explainer
         children.append(widgets.HTML("<b>Generate mesh.</b>"))
 
-        children.append(widgets.HTML(
-            value="Discretise a base region using a regular finite-difference method "
-                  "to obtain a mesh. ",
-            layout=widgets.Layout(width='auto',)
-            )
-        )
-
-        # base‐region dropdown
-        html_base_region = widgets.HTML(
-            value="Base region for mesh",
-        )
-
-        # 'Domain' aliased internally to 'main'; options are added in refresh()
-        self.dd_base_region = widgets.Dropdown(
-            layout=widgets.Layout(width="40%")
-        )
-
-        hbox_base_region = widgets.HBox(
-            children=[html_base_region, self.dd_base_region],
-            layout=widgets.Layout(
-                width='auto',
-                height='auto',
-                align_items='center',
-                align_content='center',
-                justify_content='flex-end',
-            )
-        )
-        children.append(hbox_base_region)
-
-        # boundary‐conditions are dictated by what Ubermag supports
-        self._build_boundary_conditions(children)
-
-        self.btn_build_mesh = widgets.Button(description="Build Mesh", button_style='primary',)
-        self.btn_build_mesh.on_click(self._on_create_mesh)
-
         children.append(
-            widgets.HBox([self.btn_build_mesh],
-                         layout=widgets.Layout(justify_content="center", padding='4px')
+            widgets.HTML(value="Discretise a base region using a regular finite-difference method.",
+                         layout=widgets.Layout(width="auto")
                          )
         )
 
-        panel.children = tuple(children)
+        # 1) base-region selector
+        children.append(self._make_base_region_row())
 
-        # initial populate and enable
-        bases = list(self._sys_props.regions.keys()) if self._sys_props.main_region else []
-        self.refresh(bases)
+        # 2) boundary conditions block
+        self._build_boundary_conditions(children)
 
-        return panel
+        # 3) build-mesh button
+        children.append(self._make_button_row())
 
-    def refresh(self, bases):
-        """
-        Refresh region dropdown when subregions change.
-        `bases` must be ['main', sub1, sub2, …].
-        """
-        logger.debug("CreateMesh.refresh: bases=%r", bases)
-        if not bases:
-            self.dd_base_region.options = []
-            self.btn_build_mesh.disabled = True
-            return
+    def _make_base_region_row(self) -> widgets.HBox:
+        """Construct the base-region dropdown row."""
+        label = widgets.HTML("Base region for mesh", layout=widgets.Layout(width="auto"))
 
-        self.dd_base_region.options = bases
-        if self.dd_base_region.value not in bases:
-            self.dd_base_region.value = bases[0]
-        self.btn_build_mesh.disabled = False
-        self.btn_build_mesh.button_style = ''
+        self.dd_base_region = widgets.Dropdown(layout=widgets.Layout(width="40%"))
+        hbox = widgets.HBox(
+            [label, self.dd_base_region],
+            layout=widgets.Layout(
+                align_items="center",
+                justify_content="flex-end",
+                gap="4px"
+            )
+        )
 
-    def _on_create_mesh(self, _):
-        """Instantiate df.Mesh from UI and invoke the callback."""
+        return hbox
+
+    def _make_button_row(self) -> widgets.HBox:
+        """Construct the Build Mesh button row."""
+        self.btn_build_mesh = widgets.Button(
+            description="Build Mesh",
+            button_style="primary",
+            layout=widgets.Layout(width="auto")
+        )
+
+        # wire click if callback already set
+        if self._ctrl_cb:
+            self.btn_build_mesh.on_click(self._on_create_mesh)
+
+        hbox = widgets.HBox(
+            [self.btn_build_mesh],
+            layout=widgets.Layout(justify_content="center", width="100%")
+        )
+
+        return hbox
+
+    def _on_create_mesh(self, _: Any) -> None:
+        """Build df.Mesh and fire the callback."""
         key = self.dd_base_region.value
-
+        bc = self._on_dropdown_bc()
         base_region = self._sys_props.regions.get(key)
         if base_region is None:
-            self.btn_build_mesh.button_style = 'danger'
+            self.btn_build_mesh.button_style = "danger"
             return
 
-        bc = self._on_dropdown_bc()
         try:
-            mesh = df.Mesh(
-                region=base_region,
-                cell=self._sys_props.cell,
-                bc=bc
-            )
+            mesh = df.Mesh(region=base_region, cell=self._sys_props.cell, bc=bc)
         except Exception as e:
             logger.error("Mesh creation failed: %s", e, exc_info=True)
             self.btn_build_mesh.button_style = "danger"
             return
 
-        self.btn_build_mesh.button_style = 'success'
+        self.btn_build_mesh.button_style = "success"
 
-        if self._mesh_cb:
-            self._mesh_cb(mesh)
+        # Controller callback to update _CoreProperties
+        if self._ctrl_cb:
+            self._ctrl_cb(mesh)
 
-        bases = ["main"] + list(self._sys_props.regions.keys())
-        self.refresh(bases)
+        # Repopulate base regions in case new ones appeared
+        self.refresh()
 
-    def _build_boundary_conditions(self, children):
+    def _build_boundary_conditions(self, children: list[widgets.Widget]) -> None:
         """
-        Ubermag is updating which boundary conditions are available.
-
-        This function is a placeholder for the future.
+        Append boundary‐condition selector + context‐sensitive options.
         """
-        # 1) Explain to user how BC are set
-        html_explainer = widgets.HTMLMath(
+
+        children.append(widgets.HTMLMath(
             value=(
-                f"Boundary conditions should be specified. "
-                f"The default setting in Ubermag is Open. "
+                "Boundary conditions should be specified. "
+                "The default setting is Open."
             ),
-            layout=widgets.Layout(
-                overflow_y="visible",
-                width="auto"
-            )
-        )
-        children.append(html_explainer)
+            layout=widgets.Layout(width="auto")
+        ))
 
-        # 2) Create DropDown to handle input of BC type
+        # Boundary condition (BC) options must be taken directly from ubermag
+        # TODO. Link `bc_opts` with `df.Mesh.bc.setter` to automatically import valid options
         bc_opts = [
             ("Open", "open"),
             ("Periodic", "periodic"),
             ("Neumann", "neumann"),
             ("Dirichlet", "dirichlet"),
         ]
-        max_label_length = max(len(label) for label, _ in bc_opts)
-        dd_width = f"{max_label_length * 1.5 + 2}ch"
+        max_len = max(len(lbl) for lbl, _ in bc_opts)
+        dd_w = f"{max_len*1.5+2}ch"
         self.dd_bc_type = widgets.Dropdown(
             options=bc_opts,
             value="open",
-            layout=widgets.Layout(width=dd_width)
+            layout=widgets.Layout(width=dd_w)
         )
 
-        # 3) Create widgets for each BC type
-        # 3.1) Open BC - no additional options needed so add a spacer
-        html_placeholder = widgets.HTML(
-            value="<b>None</b>",
-            layout=widgets.Layout(width="auto")
-        )
-        hbox_placeholder = widgets.HBox(
-            children=[html_placeholder],
-            layout=widgets.Layout(
-                width="auto",
-                height="auto",
-                align_items='center',
-                gap="4px")
-        )
+        # per-axis checkboxes. `style` required to keep widget dimensions small
+        self.ckk_bc_x = widgets.Checkbox(description="x", value=False,
+                                         style={'description_width': '2rem'},
+                                         layout=widgets.Layout(width="auto")
+                                         )
+        self.ckk_bc_y = widgets.Checkbox(description="y", value=False,
+                                         style={'description_width': '2rem'},
+                                         layout=widgets.Layout(width="auto")
+                                         )
+        self.ckk_bc_z = widgets.Checkbox(description="z", value=False,
+                                         style={'description_width': '2rem'},
+                                         layout=widgets.Layout(width="auto")
+                                         )
 
-        # 3.2) Periodic BC - one checkbox for each cartesian axis
-        self.ckk_bc_x = widgets.Checkbox(
-            description='x',
-            value=False,
-            style={'description_width': '2rem'},
-            layout=widgets.Layout(width="auto")
+        # stacks of extra options
+        hbox_none = widgets.HBox([widgets.HTML("<b>None</b>")],
+                                 layout=widgets.Layout(align_items="center", gap="4px"))
+        hbox_periodic = widgets.HBox(
+            [self.ckk_bc_x, self.ckk_bc_y, self.ckk_bc_z],
+            layout=widgets.Layout(align_items="center", justify_content='center', gap="4px")
         )
+        hbox_neu = widgets.HBox([widgets.HTML("<b>None</b>")],
+                                layout=widgets.Layout(align_items="center", gap="4px"))
+        hbox_dir = widgets.HBox([widgets.HTML("<b>None</b>")],
+                                layout=widgets.Layout(align_items="center", gap="4px"))
 
-        self.ckk_bc_y = widgets.Checkbox(
-            description='y',
-            value=False,
-            style={'description_width': '2rem'},
-            layout=widgets.Layout(width="auto")
-        )
-
-        self.ckk_bc_z = widgets.Checkbox(
-            description='z',
-            value=False,
-            style={'description_width': '2rem'},
-            layout=widgets.Layout(width="auto")
-        )
-
-        hbox_periodic_bc = widgets.HBox(
-            children=[self.ckk_bc_x, self.ckk_bc_y, self.ckk_bc_z],
-            layout=widgets.Layout(
-                width='100%',
-                align_items='center',
-                # justify_content='center',
-                gap="4px")
-        )
-        
-        # 3.3) Neumann BC - no additional options needed so add a spacer
-        hbox_neumann = widgets.HBox([widgets.HTML(value="<b>None</b>")],
-                                    layout=widgets.Layout(align_items='center', gap='4px'))
-        # 3.4) Dirichlet BC - one text box for each cartesian axis
-        hbox_dirichlet = widgets.HBox([widgets.HTML(value="<b>None</b>")],
-                                      layout=widgets.Layout(align_items='center', gap='4px'))
-
-        # Create stack of widgets and link to DropDown
-        stack_bc = widgets.Stack(
-            children=[hbox_placeholder, hbox_periodic_bc, hbox_neumann, hbox_dirichlet],
+        stack = widgets.Stack(
+            children=[hbox_none, hbox_periodic, hbox_neu, hbox_dir],
             selected_index=0,
             layout=widgets.Layout(width="auto")
         )
-        widgets.jslink((self.dd_bc_type, 'index'), (stack_bc, 'selected_index'))
+        widgets.jslink((self.dd_bc_type, "index"), (stack, "selected_index"))
 
-        # --------
-        # Create box to hold the DropDown and the stack
-        hbox_dropdown_plus_stack = widgets.VBox(
-            children=[self.dd_bc_type, stack_bc],
-            layout=widgets.Layout(
-                width="auto",
-                height="auto",
-                align_items='center',
-                gap="4px")
-        )
+        # group dropdown + stack
+        children.append(widgets.VBox(
+            [self.dd_bc_type, stack],
+            layout=widgets.Layout(align_items="center", gap="4px")
+        ))
 
-        children.append(hbox_dropdown_plus_stack)
+    def _on_dropdown_bc(self) -> str:
+        """Translate widget states into the df.Mesh bc string."""
+        mode = self.dd_bc_type.value
+        match mode:
+            case "open":
+                return ""
 
-    def _on_dropdown_bc(self):
-        """Return string for BC type as required by Ubermag"""
-        if self.dd_bc_type.value == 'open':
-            return ''
+            case "periodic":
+                # Defaults to open if no checkboxes were selected.
+                bc = ''
+                if self.ckk_bc_x.value: bc += 'x'
+                if self.ckk_bc_y.value: bc += 'y'
+                if self.ckk_bc_z.value: bc += 'z'
+                return bc
 
-        if self.dd_bc_type.value == 'periodic':
-            bc = ''
+            case "neumann":
+                return mode
 
-            if self.ckk_bc_x.value:
-                bc += 'x'
-            if self.ckk_bc_y.value:
-                bc += 'y'
-            if self.ckk_bc_z.value:
-                bc += 'z'
+            case "dirichlet":
+                return mode
 
-            if len(bc) == 0:
-                self.dd_bc_type.value = 'open'
+        raise NotImplementedError(f"BC mode {mode!r}")
 
-            return bc
+    def refresh(self, *_) -> None:
+        """
+        Refresh the “base region” dropdown and enable/disable the build button
+        based entirely on self._sys_props.regions (and self._sys_props.main_region).
 
-        if self.dd_bc_type.value == 'dirichlet':
-            return 'dirichlet'
+        Called whenever regions are added/removed upstream.
+        """
+        regions_list = list(self._sys_props.regions.keys())
+        logger.debug("CreateMesh.refresh: computed bases=%r", regions_list)
 
-        if self.dd_bc_type.value == 'neumann':
-            return 'neumann'
+        self.dd_base_region.options = regions_list
+        self.btn_build_mesh.disabled = not bool(regions_list)
 
-        raise NotImplementedError
+        # pick first if current no longer valid
+        if regions_list and self.dd_base_region.value not in regions_list:
+            self.dd_base_region.value = regions_list[0]
+        # clear any “danger” style if previously failed
+        if not self.btn_build_mesh.disabled:
+            self.btn_build_mesh.button_style = ""

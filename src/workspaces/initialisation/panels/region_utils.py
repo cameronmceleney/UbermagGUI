@@ -17,7 +17,6 @@ Version:     0.1.0
 
 # Third-party imports
 from discretisedfield import Region
-from sympy.strategies.core import switch
 
 # Local application imports
 from src.config.type_aliases import _AXIS_INDICES

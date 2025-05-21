@@ -16,7 +16,7 @@ Version:     0.1.0
 # Standard library imports
 from abc import ABC, abstractmethod
 import ipywidgets as widgets
-from typing import Any, List, Optional
+from typing import Any, Callable, List, Optional, Sequence
 
 # Third-party imports
 
@@ -46,7 +46,7 @@ class _PanelBase(ABC):
         # layout parameters for every panel
         self._layout = widgets.Layout(
             width='100%',
-            min_height='0', height='100%',
+            min_height='0', height=None,
             overflow_x='hidden',
             overflow_y='scroll',
             padding='4px',
@@ -92,12 +92,40 @@ class _PanelBase(ABC):
         """
 
     @abstractmethod
-    def refresh(self, bases: list) -> None:
+    def refresh(self, *_) -> None:
         """
         Public callback used by feature controller to update panel's widgets' options.
 
         Concrete subclasses containing DropDown widgets dependent on dynamic inputs MUST
         implement this.
-
-        :param bases: Suitable for passing to ``ipywidgets.DropDown.options``.
         """
+
+    @staticmethod
+    def _refresh_dropdown(
+        dd: widgets.Dropdown,
+        items: Sequence[Any],
+        *,
+        labeler: Callable[[Any], str] = str,
+        default_first: bool = True,
+        disable_widget: widgets.Widget | None = None
+    ) -> None:
+        """
+        Populate `dd.options` with [(labeler(item), item), …].
+        If empty, optionally disable `disable_widget`.
+        """
+        opts = [(labeler(it), it) for it in items]
+        old = dd.value
+        dd.options = opts
+
+        # clear or reset value
+        if not opts:
+            dd.value = None
+        elif default_first:
+            if old not in {v for _, v in opts}:
+                dd.value = opts[0][1]
+        else:
+            if old not in {v for _, v in opts}:
+                dd.value = None
+
+        if disable_widget:
+            disable_widget.disabled = not bool(opts)

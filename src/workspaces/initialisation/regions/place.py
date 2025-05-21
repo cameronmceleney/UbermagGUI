@@ -4,11 +4,9 @@
 Project: UbermagGUI
 Path:    src/workspaces/initialisation/regions/place.py
 
-PlaceRegionInModel:
-    name + pmin/pmax + Place button to add a subregion to the model.
-
-This panel gathers the name and coordinates of a new subregion, informs
-ControlsPanel of that addition (in SI), and triggers a redraw of ViewportArea.
+PlaceRegion:
+    UI to set up a new subregion by specifying a name, pmin/pmax,
+    then handing it back to the WorkspaceController.
 """
 # Standard library imports
 import logging
@@ -20,106 +18,129 @@ import discretisedfield as df
 
 # Local application imports
 from src.config.type_aliases import UNIT_FACTORS
-from src.config.dataclass_containers import _CoreProperties
-from src.workspaces.initialisation.panels.xyz_inputs import ThreeCoordinateInputs
+from src.workspaces.initialisation.panels import _PanelBase, ThreeCoordinateInputs
 
 __all__ = ["PlaceRegion"]
 
 logger = logging.getLogger(__name__)
 
 
-class PlaceRegion:
+class PlaceRegion(_PanelBase):
+    """
+    PlaceRegion panel:
+
+    Attributes
+    ----------
+    new_region : widgets.Text
+        Text input for the new region's name.
+
+    pmin : ThreeCoordinateInputs
+        Three FloatText inputs for the minimum corner.
+
+    pmax : ThreeCoordinateInputs
+        Three FloatText inputs for the maximum corner.
+
+    btn_place : widgets.Button
+        Button to commit the new region.
+    """
+    new_region: widgets.Text
+    pmin: ThreeCoordinateInputs
+    pmax: ThreeCoordinateInputs
+    btn_place: widgets.Button
+
     def __init__(self):
-        # callbacks to ControlsPanel
-        self._state_cb = None
+        super().__init__()
 
-        # Build-time attributes
-        self._sys_props = None
+    def _assemble_panel(self, children: list[widgets.Widget]) -> None:
 
-        # Widgets (will be re-created each build)
-        # widgets will be set in build()
-        self.text_name = None
-        self.pmin = ThreeCoordinateInputs(None, None, None)
-        self.pmax = ThreeCoordinateInputs(None, None, None)
-        self.btn_place = None
+        children.append(widgets.HTML("<b>Define region.</b>"))
 
-    def set_state_callback(self, cb):
-        """Register the GeometryController._on_domain callback."""
-        self._state_cb = cb
+        children.append(widgets.HTML(
+            value="Define a new region which can be positioned anywhere in the domain.",
+            layout=Layout(width="auto")
+        ))
 
-        if self._state_cb and getattr(self, "btn_place", None):
+        children.append(self._make_name_row())
+
+        children.extend(self._make_coordinate_rows())
+
+        children.append(self._make_place_button())
+
+    def _make_name_row(self) -> widgets.HBox:
+        label = widgets.HTML(value="New region")
+
+        self.new_region = widgets.Text(
+            placeholder="name",
+            layout=Layout(width="40%")
+        )
+
+        hbox = widgets.HBox(
+            [label, self.new_region],
+            layout=Layout(
+                align_items="center",
+                justify_content="flex-end",
+                gap="4px"
+            )
+        )
+
+        return hbox
+
+    def _make_coordinate_rows(self) -> list[widgets.Widget]:
+
+        out: list[widgets.Widget] = []
+
+        out.append(
+            widgets.HTML(
+                value="Define the two diagonally-opposite corners of the region:",
+                layout=Layout(overflow_y="visible",
+                              align_content="stretch",
+                              justify_content="flex-start")
+            )
+        )
+
+        self.pmin = ThreeCoordinateInputs.from_defaults(r"\(\mathbf{p}_1\)", (0, 0, 0))
+        out.append(self.pmin.hbox)
+
+        self.pmax = ThreeCoordinateInputs.from_defaults(r"\(\mathbf{p}_2\)", (1, 1, 1))
+        out.append(self.pmax.hbox)
+
+        out.append(
+            widgets.HTMLMath(value=f"(Units: {self._sys_props.units[0]})",
+                             layout=Layout(justify_content="flex-end")
+                             )
+        )
+
+        return out
+
+    def _make_place_button(self) -> widgets.HBox:
+        self.btn_place = widgets.Button(
+            description="Place region",
+            layout=Layout(width="auto"),
+            button_style='',  # default to Grey
+            style={"button_width": "auto"}
+        )
+        # wire it now that btn_place exists
+        if self._ctrl_cb:
             self.btn_place.on_click(self._on_place)
 
-    def build(self, context: _CoreProperties) -> widgets.VBox:
-        """
-        Build and return the UI for placing a subregion.
-        Capture controls_panel for dims/units lookups.
-        """
-        self._sys_props = context
-
-        place_panel = widgets.VBox(
-            layout=Layout(
-                overflow='hidden',
-                padding='4px',
-
-            )
-        )
-        panel_children = []
-
-        # Explanation HTML
-        # 1) Explanation HTML about purpose of panel
-        html_explainer_region = widgets.HTML(
-            value="Define a new region which can be positioned anywhere in the domain.",
-            layout=widgets.Layout(
-                width='auto',
-            )
-        )
-        panel_children.append(html_explainer_region)
-
-        html_region_name = widgets.HTML(
-            value="New region",
-        )
-        self.text_name = widgets.Text(
-            placeholder="name",
-            layout=Layout(width='40%'),
-        )
-        hbox_region_name = widgets.HBox(
-            children=[html_region_name, self.text_name],
-            layout=Layout(
-                align_items='center',
-                align_content='center',
-                justify_content='flex-end',
-            )
-        )
-        panel_children.append(hbox_region_name)
-
-        self._position_widgets(panel_children)
-
-        # Place button (auto width) and center-justified
-        self.btn_place = widgets.Button(
-            description='Place region',
-            layout=Layout(width='auto'),
-            style={'button_width': 'auto'}
-        )
-
-        # always wire the click -> our handler; callback stored in self._state_cb
-        self.btn_place.on_click(self._on_place)
-
-        btn_box = widgets.HBox(
+        hbox = widgets.HBox(
             [self.btn_place],
-            layout=Layout(justify_content='center', width='100%')
+            layout=Layout(justify_content="center", width="100%")
         )
-        panel_children.append(btn_box)
 
-        place_panel.children = tuple(panel_children)
-        return place_panel
+        return hbox
 
     def _on_place(self, _):
         """When the user clicks 'Place Region'—convert inputs to SI, register, redraw."""
-        name = self.text_name.value.strip()
+        name = self.new_region.value.strip()
+
+        if not name:
+            self.btn_place.button_style = "danger"
+            logger.error("PlaceRegion._on_place: no name provided")
+            return
 
         logger.debug("PlaceRegion._on_place called; name=%r, pmin=%r, pmax=%r",
-                     self.text_name, self.pmin.values, self.pmax.values)
+                     self.new_region, self.pmin.values, self.pmax.values)
 
         # Convert to SI using controls.units
         factor = UNIT_FACTORS.get(self._sys_props.units[0], 1.0)
@@ -134,34 +155,11 @@ class PlaceRegion:
         )
 
         # Hand off to WorkspaceController
-        if self._state_cb:
-            self._state_cb(name, region)
+        if self._ctrl_cb:
+            self._ctrl_cb(name, region)
 
-        logger.success("PlaceRegion._on_place: call complete.")
+        logger.success("PlaceRegion: placed region %r %r", name, region)
 
-    def _position_widgets(self, panel_children):
-
-        # Might copy & reference Ubermag's df.Region.pmin docstring in the future
-        html_domain_explainer = widgets.HTMLMath(
-            value="Define the two diagonally-opposite corners of the region:",
-            layout=widgets.Layout(
-                overflow_y="visible",
-                align_content="stretch",
-                justify_content="flex-start",)
-        )
-        panel_children.append(html_domain_explainer)
-
-        self.pmin = ThreeCoordinateInputs.from_defaults(r"\(\mathbf{p}_1\)", (0, 0, 0))
-        panel_children.append(self.pmin.hbox)
-
-        self.pmax = ThreeCoordinateInputs.from_defaults(r"\(\mathbf{p}_2\)", (1, 1, 1))
-        panel_children.append(self.pmax.hbox)
-
-        html_units_explainer = widgets.HTMLMath(
-            value=f"(Units: {self._sys_props.units[0]})",
-            layout=widgets.Layout(
-                width="auto",
-                justify_content="flex-end",
-            )
-        )
-        panel_children.append(html_units_explainer)
+    def refresh(self, bases: list) -> None:
+        """Empty"""
+        pass

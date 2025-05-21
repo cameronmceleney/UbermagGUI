@@ -4,8 +4,8 @@
 Project: UbermagGUI
 Path:    src/workspaces/initialisation/fields/initial_magnetisation.py
 
-DefineSystemInitialMagnetisation:
-    UI to set the system’s initial fields Field (system.m).
+SelectSubregionsInMesh:
+    UI to include/exclude subregions in a given df.Mesh.
 
 On “Define m₀” click it emits a df.Field through the registered callback.
     
@@ -23,190 +23,123 @@ import logging
 import discretisedfield as df
 
 # Local application imports
-from src.workspaces.initialisation.panels.xyz_inputs import ThreeCoordinateInputs
+from src.workspaces.initialisation.panels import _PanelBase, ThreeCoordinateInputs
 
 __all__ = ["DefineSystemInitialMagnetisation"]
 
 logger = logging.getLogger(__name__)
 
 
-class DefineSystemInitialMagnetisation:
+class DefineSystemInitialMagnetisation(_PanelBase):
+    """
+    Panel to choose a base mesh, enter an initial magnetisation vector m₀,
+    set a saturation Mₛ, optionally mask, and then emit a df.Field via callback.
+
+    Attributes
+    ----------
+    dd_mesh : widgets.Dropdown
+        Select target mesh.
+
+    init_mag : ThreeCoordinateInputs
+        Input initial (normalised) magnetisations for each unit cell.
+
+    sat_mag : widgets.FloatText
+        Saturation magnetisation.
+
+    chk_mash : widgets.Checkbox
+        Toggle to ``True`` unlocks an additional panel where the user can apply a mask.
+
+    btn_define : widgets.Button
+        Button to define the initiation magnetisation, and push this state to instanced
+        `_CoreProperties.main_system.m0`.
+    """
+    dd_mesh: widgets.Dropdown
+    init_mag: ThreeCoordinateInputs
+    sat_mag: widgets.FloatText
+    chk_mask: widgets.Checkbox
+    btn_define: widgets.Button
+
     def __init__(self):
-        # callback(mesh_field: df.Field) → builder.system.m = mesh_field
-        self._state_cb = None
-        self._sys_props = None
+        super().__init__()
 
-        # widgets
-        self.dd_mesh = None
-        self.init_mag = ThreeCoordinateInputs(None, None, None)
-        self.sat_mag = None
-        self.chk_mask = None
-        self.btn_define = None
+    def _assemble_panel(self, children: list[widgets.Widget]) -> None:
+        # 1) Header
+        children.append(widgets.HTML("<b>Set mesh’s initial fields state</b>"))
 
-    def set_state_callback(self, cb):
-        """Register callback to receive the new df.Field."""
-        self._state_cb = cb
-
-    def build(self, context) -> widgets.VBox:
-        """
-        Build the UI and wire all callbacks.
-        """
-        self._sys_props = context
-
-        panel = widgets.VBox(
-            layout=widgets.Layout(
-                width='auto',
-                height='auto',
-                overflow="hidden",
-                padding="4px"
-            ),
-        )
-        children = []
-
-        html_explainer = widgets.HTML("<b>Set mesh's initial fields state.</b>")
-        children.append(html_explainer)
-
-        # HTML + DropDown both required to inline DropDown with subsequent HTML widget
-        html_base_mesh = widgets.HTML(
-            "For a given base mesh",
-            layout=widgets.Layout(flex='0 0 auto')
+        # 2) Base‐mesh selector
+        html_mesh = widgets.HTML(
+            "For a given base mesh:",
+            layout=widgets.Layout(flex="0 0 auto")
         )
         self.dd_mesh = widgets.Dropdown(layout=widgets.Layout(flex="0 0 30%"))
-
-        hbox_base_mesh = widgets.HBox(
-            children=[html_base_mesh, self.dd_mesh],
+        html_and_dd = widgets.HBox(
+            [html_mesh, self.dd_mesh],
             layout=widgets.Layout(
-                display='flex',
-                width='100%',
-                flex_flow='row wrap',
-                word_break='break-all',
-                align_items='center',
-                gap='4px'
+                display="flex",
+                width="100%",
+                flex_flow="row wrap",
+                word_break="break-all",
+                align_items="center",
+                gap="4px",
             )
         )
-        children.append(hbox_base_mesh)
+        # Unsure if I need the following observe line of code
+        self.dd_mesh.observe(lambda *_: self.refresh(), names="value")
+        children.append(html_and_dd)
 
-        self._build_init_mag_vals(children)
-
-        # 4) Saturation fields
-        children.append(
-            widgets.HTML(value="which is scaled by the saturation fields ",)
-        )
-
-        self.sat_mag = widgets.FloatText(
-            value=800000,  # Translates to 8e5 A/m which is appropriate for YIG
-            description=r"$M_\text{s}$",
-            style={
-                # TODO. Tune these dimensions to be more consistent with other widgets
-                'description_width': '3rem',
-            },
-            layout=widgets.Layout(
-                width='50%',
-                height='auto',
-                align_self='flex-end',
-            )
-        )
-        children.append(self.sat_mag)
-
-        # TODO. Turn units information into tooltip for FloatText input of sat-mag
-        html_sat_mag_units = widgets.HTML(
-            value="(Units: A/m)",
-            layout=widgets.Layout(
-                width="auto",
-                align_self="flex-end",
-            )
-        )
-        children.append(html_sat_mag_units)
+        self._make_init_mag_widgets(children)
 
         children.append(widgets.HTML(
-            value="You can use a mask to restrict magnetic behaviours to particular regions of the mesh. "
-                  "<b>Warning:</b> "
-                  "Currently, this flag overrides any inputs in Masking panel! ",
-            )
-        )
+            value="(Units: A/m)",
+            layout=widgets.Layout(width="auto", align_self="flex-end")
+        ))
 
+        # 5) Mask checkbox
+        children.append(widgets.HTML(
+            value="You can restrict magnetic behaviours to certain regions using a mask. "
+                  "<b>Warning:</b> "
+                  "Currently, this flag overrides Mask panel inputs!",
+            layout=widgets.Layout(width="auto")
+        ))
         self.chk_mask = widgets.Checkbox(
             value=False,
             description="Use mask",
-            style={
-                'description_width': '10ch',
-                'button_width': 'auto'
-            },
-            layout=widgets.Layout(
-                width="auto",
-                justify_content='flex-end'
-            )
+            style={"description_width": "10ch"},
+            layout=widgets.Layout(justify_content="flex-end")
         )
         children.append(self.chk_mask)
 
+        # 6) Define button
         self.btn_define = widgets.Button(
-            description="Define 𝐦₀",  # Button only accepts Unicode
+            description="Define 𝐦₀",
             button_style="primary",
-            layout=widgets.Layout(
-                width="auto",
-                align_self='center',
-                padding='4px'
-            )
+            layout=widgets.Layout(align_self="center", padding="4px")
         )
-        children.append(self.btn_define)
         self.btn_define.on_click(self._on_define)
 
-        panel.children = tuple(children)
+        children.append(self.btn_define)
 
-        self.refresh()
-        return panel
-
-    def refresh(self, *_):
-        """If controls_panel.mesh changes, update the mesh dropdown."""
-        # do nothing until build() has run and assigned self._controls & self.dd_mesh
-        # TODO. Change method to use `_CoreProperties._add_mesh('main', mesh_obj)
+    def refresh(self, *_) -> None:
+        """
+        Populate (or clear) the mesh‐dropdown based on whether a mesh exists.
+        """
         if self._sys_props is None or self.dd_mesh is None:
-            logger.debug("DefineSystemInitialMagnetisation.refresh: Unable to update DropDown "
-                         "as source are invalid/empty")
+            logger.debug(
+                "DefineSystemInitialMagnetisation.refresh: "
+                "missing dd_mesh or _sys_props, skipping"
+            )
             return
 
-        # TODO. Permit multiple meshes to be accepted as inputs
-        opts = []
-        if self._sys_props.main_mesh is not None:
-            opts = [("main", "main")]
-        logger.debug("DefineSystemInitialMagnetisation.refresh: mesh options %r", opts)
-        self.dd_mesh.options = opts
+        # rebuild the mesh list, human‐readable labels, disable if empty
+        self._refresh_dropdown(
+            self.dd_mesh,
+            self._sys_props.meshes.keys(),
+            labeler=str.title,              # e.g. "Main" instead of "main"
+            default_first=True,             # pick the first if current invalid
+            disable_widget=self.btn_define  # disable “Define m₀” if no meshes
+        )
 
-        # default to first option if none selected
-        if opts and self.dd_mesh.value not in {v for _, v in opts}:
-            self.dd_mesh.value = opts[0][1]
-
-    def _on_define(self, _):
-        """Called when “Define m₀” is clicked."""
-
-        mesh = self._sys_props.main_mesh if self.dd_mesh.value == "main" else None
-
-        if mesh is None:
-            logger.error("DefineSystemInitialMagnetisation: no mesh selected", exc_info=False)
-            self.btn_define.button_style = "danger"
-            return
-
-        sat_mag = float(self.sat_mag.value)
-        mask = bool(self.chk_mask.value)
-        logger.debug("DefineSystemInitialMagnetisation._on_define: vec=%r, sat=%r, mask=%r",
-                     self.init_mag.values, sat_mag, mask)
-
-        try:
-            field = df.Field(mesh=mesh, value=self.init_mag.values, norm=sat_mag, valid=mask, nvdim=3,)
-        except Exception as e:
-            logger.error("Failed to build initial Field: %s", e, exc_info=True)
-            self.btn_define.button_style = "danger"
-            return
-
-        # give user feedback
-        self.btn_define.button_style = "success"
-        logger.success("DefineSystemInitialMagnetisation._on_define: Built initial Field %r", field)
-
-        # hand the mesh off to ControlsPanel
-        if self._state_cb:
-            self._state_cb(field)
-
-    def _build_init_mag_vals(self, panel_children):
+    def _make_init_mag_widgets(self, panel_children) -> None:
         """
         Build widgets to receive the initial fields values.
         """
@@ -221,3 +154,41 @@ class DefineSystemInitialMagnetisation:
 
         self.init_mag = ThreeCoordinateInputs.from_defaults(r"\(\mathbf{m}_{0}\)", (0, 0, 1))
         panel_children.append(self.init_mag.hbox)
+
+    def _on_define(self, _):
+        """
+        Gather inputs, build a df.Field, and emit it via the registered callback.
+        """
+        # 1) mesh lookup
+        mesh = (self._sys_props.main_mesh
+                if self.dd_mesh.value == "main"
+                else None)
+        if mesh is None:
+            logger.error("No mesh selected")
+            self.btn_define.button_style = "danger"
+            return
+
+        logger.debug("Init‐m₀: vec=%r, sat=%r, mask=%r",
+                     self.init_mag.values,
+                     self.sat_mag.value,
+                     self.chk_mask.value)
+
+        # Currently assumes we are always working in 3D space.
+        try:
+            field = df.Field(
+                mesh=mesh,
+                value=self.init_mag.values,
+                norm=float(self.sat_mag.value),
+                valid=bool(self.chk_mask.value),
+                nvdim=3
+            )
+        except Exception as e:
+            logger.error("Failed to build initial Field: %s", e, exc_info=True)
+            self.btn_define.button_style = "danger"
+            return
+
+        # 4) feedback & callback
+        self.btn_define.button_style = "success"
+        logger.success("Built initial Field %r", field)
+        if self._ctrl_cb:
+            self._ctrl_cb(field)

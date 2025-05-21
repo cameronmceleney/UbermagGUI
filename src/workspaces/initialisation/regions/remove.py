@@ -15,118 +15,125 @@ Version:     0.1.1
 # Standard library imports
 import logging
 import ipywidgets as widgets
-from ipywidgets import Layout
+from typing import Any
 
 # Third-party imports
 
 # Local application imports
+from src.workspaces.initialisation.panels import _PanelBase
 
 __all__ = ["RemoveRegion"]
 
 logger = logging.getLogger(__name__)
 
 
-class RemoveRegion:
+class RemoveRegion(_PanelBase):
+    """
+    RemoveRegion panel:
+
+    Attributes
+    ----------
+    dd_regions : widgets.Dropdown
+        Dropdown listing all current subregions.
+
+    btn_delete : widgets.Button
+        Button to remove the selected region.
+    """
     def __init__(self):
+        super().__init__()
 
-        # callbacks from ControlsPanel
-        self._state_cb = None  # ControlsPanel.remove_subregion
-        self._sys_props = None
+    def _assemble_panel(self, children: list[widgets.Widget]) -> None:
 
-        # widgets
-        self.dd_regions_in_domain = None
-        self.btn_delete = None
+        children.append(
+            widgets.HTML("<b>Remove region.</b>")
+        )
 
-    def set_state_callback(self, cb):
-        """Register the GeometryController callback."""
-        self._state_cb = cb
+        children.append(
+            widgets.HTML(value="Remove a saved region from the system. This also removes it "
+                               "from any instances in which it is a subregion.",
+                         layout=widgets.Layout(width="auto")
+                         )
+        )
 
-        if self._state_cb and getattr(self, "btn_delete", None):
+        children.append(self._make_dropdown_row())
+
+        children.append(self._make_remove_button())
+
+    def _make_dropdown_row(self) -> widgets.HBox:
+
+        label = widgets.HTML(value="Target region", layout=widgets.Layout(width="auto"))
+
+        # Build dropdown from current regions
+        self.dd_regions = widgets.Dropdown(
+            options=list(self._sys_props.regions.keys()),
+            layout=widgets.Layout(width="40%")
+        )
+        hbox = widgets.HBox(
+            [label, self.dd_regions],
+            layout=widgets.Layout(
+                align_items="center",
+                justify_content="flex-end",
+                gap="4px"
+            )
+        )
+
+        return hbox
+
+    def _make_remove_button(self) -> widgets.HBox:
+        self.btn_delete = widgets.Button(
+            description="Delete region",
+            style={"button_style": ""},
+            layout=widgets.Layout(width="auto")
+        )
+        # wire up the click only if callback is already set
+        if self._ctrl_cb:
             self.btn_delete.on_click(self._on_delete)
 
-    def build(self, context) -> widgets.VBox:
-        """
-        Build and return the UI for removing a subregion.
-        Captures controller to access current subregions.
-        """
-        self._sys_props = context
-
-        # Dynamically collect children
-        remove_panel = widgets.VBox(
-            layout=Layout(
-                width='auto',
-                height='auto',
-                overflow="hidden",
-                padding="4px"
-            ),
-        )
-        panel_children = []
-
-        # Introductory text to the panel
-        html_explainer = widgets.HTML(
-            value="Remove an existing region from the domain.",
-            layout=widgets.Layout(
-                width='auto',
-            )
-        )
-        panel_children.append(html_explainer)
-
-        # Create DropDown by populating with subregions from ControlsPanel
-        html_regions_in_domain = widgets.HTML(
-            value="Target region",
-        )
-
-        self.dd_regions_in_domain = widgets.Dropdown(
-            options=list(self._sys_props.regions.keys()),
-            layout=Layout(width="40%")
-        )
-
-        hbox_regions_in_domain = widgets.HBox(
-            children=[html_regions_in_domain, self.dd_regions_in_domain],
-            layout=Layout(
-                width='auto',
-                height='auto',
-                align_items='center',
-                align_content='center',
-                justify_content='flex-end',
-            )
-        )
-        panel_children.append(hbox_regions_in_domain)
-
-        # Button to allow user interaction
-        self.btn_delete = widgets.Button(
-            description="Delete Region",
-            style={'button_width': 'auto',
-                   'button_style': ''},
-        )
-
-        # always wire the click -> our handler; callback stored in self._state_cb
-        self.btn_delete.on_click(self._on_delete)
-
-        btn_box = widgets.HBox(
+        hbox = widgets.HBox(
             [self.btn_delete],
-            layout=Layout(justify_content='center', width='auto')
+            layout=widgets.Layout(justify_content="center", width="100%")
         )
-        panel_children.append(btn_box)
 
-        remove_panel.children = tuple(panel_children)
-        return remove_panel
+        return hbox
 
-    def _on_delete(self, _):
-        """Handle deletion: notify ControlsPanel, then redraw."""
-        region_name = self.dd_regions_in_domain.value
-        if not region_name or region_name is None:
-            self.btn_delete.button_style = 'danger'
+    def _on_delete(self, _: Any) -> None:
+        """When the user clicks delete—invoke callback & refresh dropdown."""
+        key = self.dd_regions.value
+        if not key:
+            self.btn_delete.button_style = "danger"
+            logger.error("RemoveRegion._on_delete: no region selected to delete.")
             return
 
-        # 1) remove via ControlsPanel
-        if self._state_cb:
-            self._state_cb(region_name)
+        # Notify controller
+        if self._ctrl_cb:
+            self._ctrl_cb(key)
 
-        # 2) Refresh dropdown
-        self.dd_regions_in_domain.options = list(self._sys_props.regions.keys())
-        # Do not reset .value to another region; can lead to accidental deletion if click is spammed!
-        self.dd_regions_in_domain.value = None
+        self.dd_regions.value = None
+        self.btn_delete.button_style = ""
 
-        # Reset button color; avoids confusion
-        self.btn_delete.button_style = ''
+        logger.success("RemoveRegion: deleted %r", key)
+
+    def refresh(self) -> None:
+        """
+        Called by GeometryController when regions change.
+        Update dropdown options to reflect current subregions.
+        """
+        if self._sys_props is None or self.dd_regions is None:
+            return
+
+        # remember old selection
+        old = self.dd_regions.value
+
+        # repopulate—don’t auto‐pick first if old is gone
+        self._refresh_dropdown(
+            self.dd_regions,
+            self._sys_props.regions.keys(),
+            labeler=str,
+            default_first=False
+        )
+
+        # if the old is still valid leave it, otherwise clear
+        if old in self._sys_props.regions:
+            self.dd_regions.value = old
+        else:
+            self.dd_regions.value = None
