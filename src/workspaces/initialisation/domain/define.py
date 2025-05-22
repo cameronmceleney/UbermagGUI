@@ -18,7 +18,7 @@ import discretisedfield as df
 
 # Local application imports
 from src.config.type_aliases import UNIT_FACTORS
-from src.workspaces.initialisation.panels import _PanelBase, ThreeCoordinateInputs
+from src.workspaces.initialisation.panels import _PanelBase,ThreeCoordinateInputs
 
 __all__ = [
     "DefineDomainRegion"
