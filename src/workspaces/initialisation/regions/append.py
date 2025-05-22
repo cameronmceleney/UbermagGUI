@@ -246,7 +246,7 @@ class AppendRegionUsingBase(_PanelBase):
         if self._ctrl_cb:
             self._ctrl_cb(region_name, new_region)
 
-    def refresh(self, bases: list) -> None:
+    def refresh(self, *_) -> None:
         """
         Called when geometry changes, so we can update our dropdown of base‐regions.
         """

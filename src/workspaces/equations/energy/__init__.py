@@ -7,7 +7,8 @@ Project: UbermagGUI
     Let the user enter equations required by `micromagneticmodel.System.energy`.
 
 """
+from src.workspaces.equations.energy.zeeman import StaticZeeman
 
 __all__ = [
-    ""
+    "StaticZeeman"
 ]

@@ -160,6 +160,8 @@ class PlaceRegion(_PanelBase):
 
         logger.success("PlaceRegion: placed region %r %r", name, region)
 
-    def refresh(self, bases: list) -> None:
-        """Empty"""
-        pass
+    def refresh(self, *_) -> None:
+        """
+        No dynamic controls to update here; stub to satisfy HandleFeature.
+        """
+        return

@@ -67,11 +67,6 @@ class DefineDomainRegion(_PanelBase):
     def __init__(self):
         super().__init__()
 
-        # placeholders for widgets whose value we read later
-        self.pmin = ThreeCoordinateInputs(None, None, None)
-        self.pmax = ThreeCoordinateInputs(None, None, None)
-        self.cell = ThreeCoordinateInputs(None, None, None)
-
     def _assemble_panel(self, children: typing.List[widgets.Widget]) -> None:
 
         children.append(widgets.HTML("<b>Define domain.</b>"))
@@ -225,8 +220,8 @@ class DefineDomainRegion(_PanelBase):
         self.btn_reset.disabled = True
         self.btn_reset.button_style = 'danger'
 
-    def refresh(self, *args: typing.Any) -> None:
+    def refresh(self, *_) -> None:
         """
         No dynamic ``ipywidgets.DropDown`` here, so there's nothing to refresh.
         """
-        pass
+        return

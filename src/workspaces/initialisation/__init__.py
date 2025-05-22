@@ -4,7 +4,7 @@
 Project: UbermagGUI
 
 workspaces/initialisation/__init__.py:
-    Import all the panels required to build this workspace.
+    Import all the panels and controllers required to build this feature-grouping.
 
     The 'Initialisation' workspace allows the user to create:
         - regions
@@ -19,7 +19,7 @@ workspaces/initialisation/__init__.py:
         - the state of the initial magnetic field across the domain.
 """
 # Features
-
+from src.workspaces.initialisation.controllers import InitialisationController
 
 # Panels
 import src.workspaces.initialisation.domain
@@ -28,6 +28,7 @@ import src.workspaces.initialisation.meshes
 import src.workspaces.initialisation.regions
 
 __all__ = [
+    "InitialisationController",
     "domain",
     "fields",
     "regions",

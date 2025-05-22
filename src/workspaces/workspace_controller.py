@@ -19,15 +19,12 @@ import ipywidgets as widgets
 import typing
 
 # Third-party imports
-import micromagneticmodel as mm
 import discretisedfield as df
 
 # Local application imports
 from src.workspaces.initialisation.controllers import InitialisationController
+from src.workspaces.equations.controllers import EquationsController
 from src.config.dataclass_containers import _CoreProperties
-# from .outliner import OutlinerWorkspace
-# from .equations.controllers import EnergyController, DynamicsController
-# from .viewport.workspace import ViewportWorkspace
 
 __all__ = ["WorkspaceController", "WorkspaceTopMenu"]
 
@@ -64,12 +61,16 @@ class WorkspaceController:
         self._props_controller = properties_controller
         self._plot_callback = plot_callback
 
-        # ——— listener lists for any outside subscriber (e.g. OutlinerController) ———
+        # Used by builder.py to track initial pass over interface areas
+        self._has_built_once = False
+
+        # --- listeners to features for any outside subscriber ---
+        # (e.g. Geometry, Mesh -> OutlinerController, Geometry->Mesh)
         self._geometry_listeners: typing.List[typing.Callable[[df.Region, typing.Dict[str, df.Region]], None]] = []
         self._mesh_listeners: typing.List[typing.Callable[[df.Mesh], None]] = []
         self._init_mag_listeners: typing.List[typing.Callable[[df.Field], None]] = []
-
-        self._has_built_once = False
+        self._energy_listeners: typing.List[typing.Callable[[typing.Any], None]] = []
+        self._dynamics_listeners: typing.List[typing.Callable[[typing.Any], None]] = []
 
         self.workspace_features = {
             'Initialisation': InitialisationController(
@@ -80,6 +81,13 @@ class WorkspaceController:
                 remove_callback=self._remove_subregion,
                 mesh_callback=self._on_mesh_created,
                 init_mag_callback=self._on_init_mag_created,
+            ),
+            # TODO. Check if lazy-import is better here to avoid circular imports
+            'Equations': EquationsController(
+                properties_controller=self._props_controller,
+                workspace_controller=self,
+                energy_callback=self._on_energy_term,
+                dynamics_callback=self._on_dynamics_term,
             )
         }
 
@@ -142,7 +150,35 @@ class WorkspaceController:
 
     # ——— registration API for external listeners ———
     def register_geometry_listener(self, cb: typing.Callable):
+        """
+        Notify subscribers whenever the `Geometry` feature creates/modifies a term.
+
+        Examples include: adding a region to the domain; creating a new region.
+        """
         self._geometry_listeners.append(cb)
+
+    def register_mesh_listener(self, cb: typing.Callable):
+        """
+        Notify subscribers whenever the `System Init.` feature creates/modifies a term.
+
+        Examples include: creating a mesh; changing a region's subregions.
+        """
+        self._mesh_listeners.append(cb)
+
+    def register_init_mag_listener(self, cb: typing.Callable):
+        """
+        Notify subscribers whenever the `System Init.` feature creates/modifies the ``mm.System`` container in
+        the main `_CoreProperties` instance.
+        """
+        self._init_mag_listeners.append(cb)
+
+    def register_energy_listener(self, cb: typing.Callable[[typing.Any], None]):
+        """Notify subscribers whenever an Energy term is created/modified."""
+        self._energy_listeners.append(cb)
+
+    def register_dynamics_listener(self, cb: typing.Callable[[typing.Any], None]):
+        """Notify subscribers whenever a Dynamics term is created/modified."""
+        self._dynamics_listeners.append(cb)
 
     # — plot proxy —
     def _plot_regions(self, main_region: df.Region, subregions: dict[str, df.Region], show_domain: bool = True):
@@ -210,9 +246,6 @@ class WorkspaceController:
         for cb in self._mesh_listeners:
             cb(mesh)
 
-    def register_mesh_listener(self, cb: typing.Callable):
-        self._mesh_listeners.append(cb)
-
     def _on_init_mag_created(self, field):
         logger.success("WorkspaceController got init‐mag: %r", field)
         self._props_controller._set_initial_magnetisation(field)
@@ -221,8 +254,18 @@ class WorkspaceController:
         for cb in self._init_mag_listeners:
             cb(field)
 
-    def register_init_mag_listener(self, cb: typing.Callable):
-        self._init_mag_listeners.append(cb)
+    # ---- equations state mutators ----
+    def _on_energy_term(self, term):
+        """Called by EquationsController when an energy term is set."""
+        # notify energy subscribers
+        for cb in self._energy_listeners:
+            cb(term)
+
+    def _on_dynamics_term(self, term):
+        """Called by EquationsController when a dynamics term is set."""
+        # notify dynamics subscribers
+        for cb in self._dynamics_listeners:
+            cb(term)
 
 
 class WorkspaceTopMenu:

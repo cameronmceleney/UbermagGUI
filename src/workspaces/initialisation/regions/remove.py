@@ -113,9 +113,8 @@ class RemoveRegion(_PanelBase):
 
         logger.success("RemoveRegion: deleted %r", key)
 
-    def refresh(self) -> None:
+    def refresh(self, *_) -> None:
         """
-        Called by GeometryController when regions change.
         Update dropdown options to reflect current subregions.
         """
         if self._sys_props is None or self.dd_regions is None:

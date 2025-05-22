@@ -7,7 +7,8 @@ Project: UbermagGUI
     Let the user enter equations required by `micromagneticmodel.System.dynamics`.
 
 """
+from src.workspaces.equations.dynamics.precession import PrecessionTerm
 
 __all__ = [
-    ""
+    "PrecessionTerm"
 ]

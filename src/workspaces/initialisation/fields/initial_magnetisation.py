@@ -68,7 +68,7 @@ class DefineSystemInitialMagnetisation(_PanelBase):
 
         # 2) Base‐mesh selector
         html_mesh = widgets.HTML(
-            "For a given base mesh:",
+            "For a given base mesh",
             layout=widgets.Layout(flex="0 0 auto")
         )
         self.dd_mesh = widgets.Dropdown(layout=widgets.Layout(flex="0 0 30%"))
@@ -83,11 +83,30 @@ class DefineSystemInitialMagnetisation(_PanelBase):
                 gap="4px",
             )
         )
-        # Unsure if I need the following observe line of code
         self.dd_mesh.observe(lambda *_: self.refresh(), names="value")
         children.append(html_and_dd)
 
         self._make_init_mag_widgets(children)
+
+        # Saturation fields
+        children.append(
+            widgets.HTML(value="which is scaled by the saturation fields ",)
+        )
+
+        self.sat_mag = widgets.FloatText(
+            value=800000,  # Translates to 8e5 A/m which is appropriate for YIG
+            description=r"$M_\text{s}$",
+            style={
+                # TODO. Tune these dimensions to be more consistent with other widgets
+                'description_width': '3rem',
+            },
+            layout=widgets.Layout(
+                width='50%',
+                height='auto',
+                align_self='flex-end',
+            )
+        )
+        children.append(self.sat_mag)
 
         children.append(widgets.HTML(
             value="(Units: A/m)",
