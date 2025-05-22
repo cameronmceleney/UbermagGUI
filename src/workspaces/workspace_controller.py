@@ -22,8 +22,8 @@ import typing
 import discretisedfield as df
 
 # Local application imports
-from src.workspaces.initialisation.controllers import InitialisationController
-from src.workspaces.equations.controllers import EquationsController
+from src.workspaces.initialisation.controllers import InitialisationGroupFeatureController
+from src.workspaces.equations.controllers import EquationsGroupFeatureController
 from src.config.dataclass_containers import _CoreProperties
 
 __all__ = ["WorkspaceController", "WorkspaceTopMenu"]
@@ -34,8 +34,8 @@ logger = logging.getLogger(__name__)
 class WorkspaceController:
     """
     Orchestrates the feature‐controllers:
-      • GeometryController
-      • SystemInitController
+      • GeometryFeatureController
+      • SystemInitFeatureController
       […future: Outliner, Equations, etc.]
     Holds shared state: main_region, subregions, mesh, init_mag.
 
@@ -73,7 +73,7 @@ class WorkspaceController:
         self._dynamics_listeners: typing.List[typing.Callable[[typing.Any], None]] = []
 
         self.workspace_features = {
-            'Initialisation': InitialisationController(
+            'Initialisation': InitialisationGroupFeatureController(
                 properties_controller=self._props_controller,
                 workspace_controller=self,
                 domain_callback=self._on_domain,
@@ -83,7 +83,7 @@ class WorkspaceController:
                 init_mag_callback=self._on_init_mag_created,
             ),
             # TODO. Check if lazy-import is better here to avoid circular imports
-            'Equations': EquationsController(
+            'Equations': EquationsGroupFeatureController(
                 properties_controller=self._props_controller,
                 workspace_controller=self,
                 energy_callback=self._on_energy_term,
@@ -256,13 +256,13 @@ class WorkspaceController:
 
     # ---- equations state mutators ----
     def _on_energy_term(self, term):
-        """Called by EquationsController when an energy term is set."""
+        """Called by EquationsGroupFeatureController when an energy term is set."""
         # notify energy subscribers
         for cb in self._energy_listeners:
             cb(term)
 
     def _on_dynamics_term(self, term):
-        """Called by EquationsController when a dynamics term is set."""
+        """Called by EquationsGroupFeatureController when a dynamics term is set."""
         # notify dynamics subscribers
         for cb in self._dynamics_listeners:
             cb(term)

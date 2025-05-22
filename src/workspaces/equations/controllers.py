@@ -4,7 +4,7 @@
 Project: UbermagGUI
 Path:    src/workspaces/equations/controllers.py
 
-EquationsController:
+EquationsGroupFeatureController:
     Top‐level Feature exposing two sub‐features: Energy & Dynamics.
     
 Author:      Cameron Aidan McEleney < c.mceleney.1@research.gla.ac.uk >
@@ -23,13 +23,13 @@ from src.workspaces.utils.feature_base import SingleFeatureController, GroupFeat
 from . import energy, dynamics
 
 __all__ = [
-    "EnergyController",
-    "DynamicsController",
-    "EquationsController"
+    "EnergyFeatureController",
+    "DynamicsFeatureController",
+    "EquationsGroupFeatureController"
 ]
 
 
-class EnergyController(SingleFeatureController):
+class EnergyFeatureController(SingleFeatureController):
     def __init__(
             self,
             properties_controller,
@@ -48,10 +48,10 @@ class EnergyController(SingleFeatureController):
         # --- subscribe to geometry/mesh changes so dropdowns stay in sync... ---
 
     def build(self) -> widgets.GridspecLayout:
-        return self.build_feature(self.panels)
+        return self._build_feature(self.panels)
 
 
-class DynamicsController(SingleFeatureController):
+class DynamicsFeatureController(SingleFeatureController):
     def __init__(
             self,
             properties_controller,
@@ -70,10 +70,10 @@ class DynamicsController(SingleFeatureController):
         # --- subscribe to listeners stay in sync with... ---
 
     def build(self) -> widgets.GridspecLayout:
-        return self.build_feature(self.panels)
+        return self._build_feature(self.panels)
 
 
-class EquationsController(GroupFeatureController):
+class EquationsGroupFeatureController(GroupFeatureController):
     """
     Exposes Geometry + System‐Init features under one Tab widget.
     """
@@ -88,12 +88,12 @@ class EquationsController(GroupFeatureController):
     ):
         # instantiate each feature; wired handled by feature's controller
         self.features = {
-            'Energy': EnergyController(
+            'Energy': EnergyFeatureController(
                 properties_controller=properties_controller,
                 workspace_controller=workspace_controller,
                 energy_callback=energy_callback,
             ),
-            'Dynamics': DynamicsController(
+            'Dynamics': DynamicsFeatureController(
                 properties_controller=properties_controller,
                 workspace_controller=workspace_controller,
                 dynamics_callback=dynamics_callback,

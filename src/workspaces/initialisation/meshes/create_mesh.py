@@ -9,7 +9,7 @@ Description:
     CreateMesh: define your df.Mesh for the micromagnetic System.
 
     Inherits layout + callback wiring from _PanelBase. Its typical caller will be
-    `InitialisationController`.
+    `InitialisationGroupFeatureController`.
     
 Author:      Cameron Aidan McEleney < c.mceleney.1@research.gla.ac.uk >
 Created:     04 May 2025

@@ -8,14 +8,14 @@ Project: UbermagGUI
 
 """
 # Features
-from src.workspaces.equations.controllers import EquationsController
+from src.workspaces.equations.controllers import EquationsGroupFeatureController
 
 # Panels
 import src.workspaces.equations.energy
 import src.workspaces.equations.dynamics
 
 __all__ = [
-    "EquationsController",
+    "EquationsGroupFeatureController",
     "energy",
     "dynamics"
     ""

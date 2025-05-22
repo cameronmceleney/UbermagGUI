@@ -33,8 +33,7 @@ __all__ = [
 
 class SingleFeatureController(ABC):
     """
-    Abstract base for a *feature group* in the workspace area,
-    e.g. the “Geometry” feature or the “Mesh” feature under “System Init”.
+    Abstract base for a single *feature* used in the `Workspace` area of the interface.
 
     Responsibilities:
       • holds a mapping of panel-name → panel-instance
@@ -48,15 +47,15 @@ class SingleFeatureController(ABC):
     _panels : dict[str, Any]
         Will be filled by build_feature(...). Map a keyword (used by callbacks) to each panel in the feature.
 
-    _selector : widgets.ToggleButtons | None
+    _toggle_panel : widgets.ToggleButtons | None
         Backing attribute for widget to enable toggling between *panels* within the *feature*.
 
-    _panel_area : widgets.Box | None
+    _feature_container : widgets.Box | None
         Backing attribute to combine selector + panels into single container for use in feature's tabs.
      """
     _panels: dict[str, Any]
-    _selector: widgets.ToggleButtons | None
-    _panel_area: widgets.Box | None
+    _toggle_panel: widgets.ToggleButtons | None
+    _feature_container: widgets.Box | None
 
     def __init__(
             self,
@@ -65,18 +64,27 @@ class SingleFeatureController(ABC):
         """
         Parameters
         ---------
-        _sys_props : Any
+        properties_controller : Any
             Live, shared properties for the entire interface.
         """
-        self._sys_props: Any = properties_controller
+        self._sys_props: Any = properties_controller  # Alias
 
         self._panels = {}
-        self._selector = None
-        self._panel_area = None
 
-    # TODO. Create an @abstractclass for build()
+        self._toggle_panel = None
+        self._feature_container = None
 
-    def build_feature(self, panel_map: dict) -> widgets.GridspecLayout:
+    @ abstractmethod
+    def build(self) -> widgets.GridspecLayout | widgets.Widget:
+        """
+        Return a two-column layout (selector + content).
+        Typical implementation:
+        return self._build_feature(self._panels)
+        """
+
+        ...
+
+    def _build_feature(self, panel_map: dict) -> widgets.GridspecLayout:
         """
         Build a two-column layout for the feature: [ selector | content ]
 
@@ -88,9 +96,8 @@ class SingleFeatureController(ABC):
         # Stash for children
         self._panels = panel_map
 
-        # Create from properties
-        selector = self.selector
-        content = self.panel_area
+        self._make_panel_toggle()
+        self._make_feature_container()
 
         # Build feature
         feature_grid = widgets.GridspecLayout(
@@ -104,28 +111,27 @@ class SingleFeatureController(ABC):
         )
 
         # 1st column follows own Layout, and 2nd column fills remaining space
-        feature_grid._grid_template_columns = f'{selector.style.button_width} 1fr'
+        feature_grid._grid_template_columns = f'{self._toggle_panel.style.button_width} 1fr'
 
-        feature_grid[0, 0] = selector
-        feature_grid[0, 1] = content
+        feature_grid[0, 0] = self._toggle_panel
+        feature_grid[0, 1] = self._feature_container
 
-        self._render_panel(selector.value)
+        self._render_panel(self._toggle_panel.value)
 
         return feature_grid
 
-    @property
-    def selector(self) -> widgets.ToggleButtons:
+    def _make_panel_toggle(self) -> None:
         """
         Construct the ToggleButtons used to change between panels of this feature, and setup the
         wiring required by `workspace_controller.py` and other higher-level controllers.
         """
-        if self._selector is None:
+        if self._toggle_panel is None:
             names = list(self._panels.keys())
 
             # Guaranteeing widths will be particularly helpful when displaying icons
             min_width = '10ch'  # str(min(max(len(n) for n in names), 8) + 2) + "ch"
 
-            self._selector = widgets.ToggleButtons(
+            self._toggle_panel = widgets.ToggleButtons(
                 options=names,
                 tooltips=tuple(names),
                 button_style='',  # greyed out
@@ -142,22 +148,19 @@ class SingleFeatureController(ABC):
                 ),
             )
 
-            self._selector.observe(self._on_select, names='value')
+            self._toggle_panel.observe(self._on_select, names='value')
 
             if names:
-                self._selector.value = names[0]
+                self._toggle_panel.value = names[0]
 
-        return self._selector
-
-    @property
-    def panel_area(self) -> widgets.Box:
+    def _make_feature_container(self) -> None:
         """
         Host the active panel's built UI.
 
         Lazily constructed when first accessed.
         """
-        if self._panel_area is None:
-            self._panel_area: widgets.Box = widgets.Box(
+        if self._feature_container is None:
+            self._feature_container: widgets.Box = widgets.Box(
                 layout=widgets.Layout(
                     display='flex',
                     flex='1 1 auto',
@@ -168,15 +171,18 @@ class SingleFeatureController(ABC):
                     overflow_y="auto"
                 )
             )
-        return self._panel_area
 
     def _on_select(self, change: dict) -> None:
-        """Handles when ToggleButtons' value changes."""
+        """Called when the user picks a new ToggleButtons entry."""
         if change.get('name') == 'value':
             self._render_panel(change['new'])
 
     def _render_panel(self, panel_name: str) -> None:
-        """Clear the active box, and display the chosen panel."""
+        """
+        Clear the active box, and display the chosen panel.
+
+        Actually call panel.build(...) (and .refresh()) and swap it in.
+        """
         feature = self._panels.get(panel_name)
         panel_requested = feature.build(self._sys_props)
 
@@ -187,7 +193,7 @@ class SingleFeatureController(ABC):
         if hasattr(feature, "refresh"):
             feature.refresh()
 
-        self._panel_area.children = (panel_requested,)
+        self._feature_container.children = (panel_requested,)
 
 
 class GroupFeatureController(ABC):
@@ -227,7 +233,9 @@ class GroupFeatureController(ABC):
     ) -> widgets.Tab:
         """
          Helper to build a Tab from a dict of name→SingleFeatureController.
-         Automatically builds each sub‐feature, wires them in, and sets titles.
+
+         Automatically builds each sub‐feature, wires them in, and sets titles. Useful as it lets me standardise
+         the layout of Tabs for feature-groupings.
          """
         # Defaults to None due to arg default
         layout = layout or widgets.Layout(

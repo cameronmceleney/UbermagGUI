@@ -19,7 +19,7 @@ workspaces/initialisation/__init__.py:
         - the state of the initial magnetic field across the domain.
 """
 # Features
-from src.workspaces.initialisation.controllers import InitialisationController
+from src.workspaces.initialisation.controllers import InitialisationGroupFeatureController
 
 # Panels
 import src.workspaces.initialisation.domain
@@ -28,7 +28,7 @@ import src.workspaces.initialisation.meshes
 import src.workspaces.initialisation.regions
 
 __all__ = [
-    "InitialisationController",
+    "InitialisationGroupFeatureController",
     "domain",
     "fields",
     "regions",
